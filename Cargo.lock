@@ -447,6 +447,7 @@ dependencies = [
  "gpui-pre-platform",
  "reqwest",
  "serde",
+ "serde_json",
  "toml 0.9.12+spec-1.1.0",
 ]
 

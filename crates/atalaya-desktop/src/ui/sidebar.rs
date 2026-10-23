@@ -66,6 +66,8 @@ enum Sync {
     Loading,
     /// Cuándo respondió el servicio por última vez al pedir el menú.
     Done(Instant),
+    /// Sin red: el menú y las listas salen de la copia en disco (L8).
+    Offline,
     Failed(String),
 }
 
@@ -124,12 +126,24 @@ impl Sidebar {
             }
         };
         self._load = cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move { client.sidebar() }).await;
+            let fetch = client.clone();
+            let result = cx.background_spawn(async move { fetch.sidebar() }).await;
+            let offline = client.is_offline();
+            if result.is_ok() && !offline {
+                // Cada vez que se sincroniza, los guardados nuevos bajan a
+                // disco. No se espera: tarda lo que tarde traducirlos.
+                cx.background_spawn(async move { client.cache_starred() })
+                    .detach();
+            }
             this.update(cx, |this, cx| {
                 match result {
                     Ok(data) => {
                         this.data = Some(data);
-                        this.sync = Sync::Done(Instant::now());
+                        this.sync = if offline {
+                            Sync::Offline
+                        } else {
+                            Sync::Done(Instant::now())
+                        };
                     }
                     Err(error) => this.sync = Sync::Failed(error),
                 }
@@ -311,6 +325,7 @@ impl Sidebar {
         let text: SharedString = match &self.sync {
             Sync::Loading => "Sincronizando…".into(),
             Sync::Done(at) => synced_label(at.elapsed()).into(),
+            Sync::Offline => "Sin conexión".into(),
             Sync::Failed(error) => error.clone().into(),
         };
         div()
