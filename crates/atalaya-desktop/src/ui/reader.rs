@@ -78,11 +78,22 @@ impl Default for Reader {
 impl Reader {
     pub fn show(&mut self, entry: EntrySummary, cx: &mut Context<Self>) {
         let id = entry.id;
+        let unread = !entry.read;
         self.summary = Some(entry);
         self.load = Load::Loading;
         self.lang = Lang::Spanish;
         self.action_error = None;
         self.fetch(id, Duration::ZERO, cx);
+        // Abrir marca como leído; el botón de la barra sirve para deshacerlo.
+        if unread {
+            self.update(
+                EntryUpdate {
+                    read: Some(true),
+                    starred: None,
+                },
+                cx,
+            );
+        }
         cx.notify();
     }
 
