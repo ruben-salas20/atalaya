@@ -361,6 +361,7 @@ impl Render for Sidebar {
                 &p,
                 cx,
             ))
+            .child(self.screen_item(Screen::Papers, Icon::Search, "Buscar papers", &p, cx))
             .child(
                 div()
                     .px(px(22.))

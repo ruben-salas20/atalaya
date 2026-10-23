@@ -12,6 +12,8 @@ use crate::settings::FontSize;
 use crate::ui::Connection;
 use crate::ui::entry_list::{EntryList, EntryListEvent};
 use crate::ui::feeds::{FeedsEvent, FeedsScreen};
+use crate::ui::papers::reader::{PaperReader, PaperReaderEvent};
+use crate::ui::papers::search::{PaperSearch, PaperSearchEvent};
 use crate::ui::reader::{Reader, ReaderEvent};
 use crate::ui::settings::SettingsScreen;
 use crate::ui::sidebar::{Sidebar, SidebarEvent, Source};
@@ -21,6 +23,8 @@ use crate::ui::sidebar::{Sidebar, SidebarEvent, Source};
 pub enum Screen {
     /// Lista y lectura (pantallas 1 y 2 de las maquetas).
     Reading,
+    /// Buscar papers (pantalla 4).
+    Papers,
     /// Gestión de feeds (pantalla 5).
     Feeds,
     /// Ajustes (pantalla 3).
@@ -33,6 +37,8 @@ pub struct AppView {
     entry_list: Entity<EntryList>,
     reader: Entity<Reader>,
     feeds: Entity<FeedsScreen>,
+    paper_search: Entity<PaperSearch>,
+    paper_reader: Entity<PaperReader>,
     settings: Entity<SettingsScreen>,
     _subscriptions: Vec<Subscription>,
 }
@@ -46,6 +52,8 @@ impl AppView {
         let reader = cx.new(|_| Reader::default());
         let feeds = cx.new(|cx| FeedsScreen::new(window, cx));
         let settings = cx.new(|cx| SettingsScreen::new(window, cx));
+        let paper_search = cx.new(|cx| PaperSearch::new(window, cx));
+        let paper_reader = cx.new(|_| PaperReader::default());
 
         let subscriptions = vec![
             cx.observe_global::<FontSize>(|this, cx| {
@@ -67,6 +75,36 @@ impl AppView {
                     cx.notify();
                 }
             }),
+            // Al abrir «Buscar papers», el cursor va al buscador.
+            cx.subscribe_in(
+                &sidebar,
+                window,
+                |this, _, event: &SidebarEvent, window, cx| {
+                    if let SidebarEvent::ScreenOpened(Screen::Papers) = event {
+                        this.paper_search
+                            .update(cx, |search, cx| search.focus(window, cx));
+                    }
+                },
+            ),
+            cx.subscribe(
+                &paper_search,
+                |this, _, event: &PaperSearchEvent, cx| match event {
+                    PaperSearchEvent::Selected(paper) => {
+                        this.paper_reader
+                            .update(cx, |reader, cx| reader.show(paper.clone(), cx));
+                    }
+                },
+            ),
+            cx.subscribe(
+                &paper_reader,
+                |this, _, event: &PaperReaderEvent, cx| match event {
+                    PaperReaderEvent::Saved { arxiv_id, entry } => {
+                        this.paper_search
+                            .update(cx, |search, cx| search.mark_saved(arxiv_id, entry.id, cx));
+                        this.sidebar.update(cx, |sidebar, cx| sidebar.reload(cx));
+                    }
+                },
+            ),
             cx.subscribe(&feeds, |this, _, event: &FeedsEvent, cx| match event {
                 FeedsEvent::Changed => {
                     this.sidebar.update(cx, |sidebar, cx| sidebar.reload(cx));
@@ -109,6 +147,8 @@ impl AppView {
             entry_list,
             reader,
             feeds,
+            paper_search,
+            paper_reader,
             settings,
             _subscriptions: subscriptions,
         }
@@ -130,6 +170,9 @@ impl Render for AppView {
             Screen::Reading => root
                 .child(self.entry_list.clone())
                 .child(self.reader.clone()),
+            Screen::Papers => root
+                .child(self.paper_search.clone())
+                .child(self.paper_reader.clone()),
             Screen::Feeds => root.child(self.feeds.clone()),
             Screen::Settings => root.child(self.settings.clone()),
         }
