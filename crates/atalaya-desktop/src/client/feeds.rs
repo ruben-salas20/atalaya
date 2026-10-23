@@ -42,6 +42,14 @@ impl ApiClient {
         self.get("/api/categories")
     }
 
+    /// `POST /api/categories`: crea una carpeta.
+    pub fn create_category(&self, title: &str) -> Result<Category> {
+        let body = CategoryInput {
+            title: title.to_owned(),
+        };
+        self.send_json(Method::POST, "/api/categories", &body)
+    }
+
     /// `PATCH /api/categories/{id}`: renombra una carpeta.
     pub fn rename_category(&self, id: Id, title: &str) -> Result<Category> {
         let body = CategoryInput {

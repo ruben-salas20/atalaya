@@ -72,9 +72,13 @@ enum Sync {
 /// Cada cuánto se repinta «Sincronizado (N min)» para que avance solo.
 const SYNC_TICK: Duration = Duration::from_secs(15);
 
-/// Texto de S2: «Sincronizado (N min)», con los minutos enteros.
+/// Texto de S2: «Sincronizado (N min)», con los minutos enteros, o
+/// «Sincronizado (ahora)» antes del primer minuto.
 fn synced_label(elapsed: Duration) -> String {
-    format!("Sincronizado ({} min)", elapsed.as_secs() / 60)
+    match elapsed.as_secs() / 60 {
+        0 => "Sincronizado (ahora)".to_owned(),
+        minutes => format!("Sincronizado ({minutes} min)"),
+    }
 }
 
 pub struct Sidebar {
@@ -399,7 +403,7 @@ mod tests {
     fn synced_in_whole_minutes() {
         assert_eq!(
             synced_label(Duration::from_secs(20)),
-            "Sincronizado (0 min)"
+            "Sincronizado (ahora)"
         );
         assert_eq!(
             synced_label(Duration::from_secs(5 * 60 + 59)),

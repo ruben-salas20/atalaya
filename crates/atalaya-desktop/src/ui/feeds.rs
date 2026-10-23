@@ -51,6 +51,9 @@ pub struct FeedsScreen {
     name: Entity<InputState>,
     folder: Option<Id>,
     folder_open: bool,
+    /// Nombre de la carpeta nueva, cuando se eligió «Nueva carpeta…».
+    new_folder: Entity<InputState>,
+    creating_folder: bool,
     crawler: bool,
     /// Se pidió quitar o borrar y falta confirmarlo.
     confirming: bool,
@@ -67,14 +70,24 @@ impl FeedsScreen {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let url = cx.new(|cx| InputState::new(window, cx).placeholder("theverge.com"));
         let name = cx.new(|cx| InputState::new(window, cx));
-        let subscriptions =
-            vec![
-                cx.subscribe_in(&url, window, |this, _, event: &InputEvent, window, cx| {
+        let new_folder =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Nombre de la carpeta"));
+        let subscriptions = vec![
+            cx.subscribe_in(&url, window, |this, _, event: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    this.discover(window, cx);
+                }
+            }),
+            cx.subscribe_in(
+                &new_folder,
+                window,
+                |this, _, event: &InputEvent, window, cx| {
                     if let InputEvent::PressEnter { .. } = event {
-                        this.discover(window, cx);
+                        this.create_folder(window, cx);
                     }
-                }),
-            ];
+                },
+            ),
+        ];
         Self {
             feeds: Vec::new(),
             categories: Vec::new(),
@@ -86,6 +99,8 @@ impl FeedsScreen {
             name,
             folder: None,
             folder_open: false,
+            new_folder,
+            creating_folder: false,
             crawler: false,
             confirming: false,
             busy: false,
@@ -314,6 +329,31 @@ impl FeedsScreen {
                     this.feeds.retain(|f| f.id != id);
                     this.open_add(window, cx);
                     this.message = Some(Ok("Feed quitado".into()));
+                    this.reload(cx);
+                    cx.emit(FeedsEvent::Changed);
+                }
+                Err(error) => this.message = Some(Err(error)),
+            },
+        );
+    }
+
+    fn create_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let title = self.new_folder.read(cx).value().trim().to_owned();
+        if title.is_empty() {
+            return;
+        }
+        self.run(
+            window,
+            cx,
+            move |client| client.create_category(&title),
+            |this, result, window, cx| match result {
+                Ok(category) => {
+                    this.folder = Some(category.id);
+                    this.categories.push(category);
+                    this.creating_folder = false;
+                    this.new_folder
+                        .update(cx, |input, cx| input.set_value("", window, cx));
+                    this.message = Some(Ok("Carpeta creada".into()));
                     this.reload(cx);
                     cx.emit(FeedsEvent::Changed);
                 }
@@ -898,14 +938,51 @@ impl FeedsScreen {
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.folder = Some(id);
                             this.folder_open = false;
+                            this.creating_folder = false;
                             cx.notify();
                         }))
                 }))
+                .child(
+                    div()
+                        .id("folder-new")
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .h(px(38.))
+                        .px(px(14.))
+                        .border_t_1()
+                        .border_color(p.divider)
+                        .cursor_pointer()
+                        .text_color(p.text2)
+                        .hover(move |s| s.bg(hover))
+                        .child(icon(Icon::Add, px(16.), p.text2))
+                        .child("Nueva carpeta…")
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.folder_open = false;
+                            this.creating_folder = true;
+                            this.new_folder
+                                .update(cx, |input, cx| input.focus(window, cx));
+                            cx.notify();
+                        })),
+                )
         });
+        let create =
+            self.creating_folder.then(|| {
+                div()
+                    .mt(px(8.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .child(div().flex_1().child(Input::new(&self.new_folder)))
+                    .child(secondary("folder-create", "Crear", p).on_click(
+                        cx.listener(|this, _, window, cx| this.create_folder(window, cx)),
+                    ))
+            });
         div()
             .child(label("Carpeta", p))
             .child(field)
             .children(options)
+            .children(create)
             .into_any_element()
     }
 

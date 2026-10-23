@@ -286,7 +286,7 @@ impl Render for SettingsScreen {
                             .px(px(40.))
                             .pt(px(8.))
                             .pb(px(32.))
-                            .child(heading("Servicio", &p))
+                            .child(heading("Servicio Atalaya", &p))
                             .child(field(
                                 "Dirección",
                                 None,
