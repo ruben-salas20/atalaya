@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquetas PC · Atalaya, lector RSS con traducción</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Roboto, "Noto Sans", system-ui, sans-serif;
+    background: #d9d9d9; color: #1a1a1a;
+    padding: 40px 24px 80px;
+  }
+  .intro { max-width: 1200px; margin: 0 auto 40px; line-height: 1.55; }
+  .intro h1 { font-size: 28px; font-weight: 500; margin-bottom: 12px; }
+  .intro p { margin-bottom: 8px; max-width: 760px; }
+  .screen-section { max-width: 1200px; margin: 0 auto 72px; }
+  .screen-section h2 { font-size: 20px; font-weight: 500; margin-bottom: 6px; }
+  .screen-section > p { margin-bottom: 20px; line-height: 1.5; color: #444; max-width: 760px; }
+  .pair { display: flex; flex-direction: column; gap: 32px; align-items: center; }
+  .variant-label { font-size: 13px; color: #555; margin-bottom: 8px; letter-spacing: .04em; text-transform: uppercase; }
+
+  /* Paleta neutra, la misma que en el móvil */
+  .win.light {
+    --bg: #ffffff; --side: #f6f6f6; --surface: #f0f0f0; --surface2: #e6e6e6;
+    --text: #111111; --text2: #555555; --text3: #8c8c8c;
+    --divider: #e6e6e6; --accent: #111111; --on-accent: #ffffff;
+  }
+  .win.dark {
+    --bg: #121212; --side: #171717; --surface: #1f1f1f; --surface2: #2a2a2a;
+    --text: #f1f1f1; --text2: #b0b0b0; --text3: #7c7c7c;
+    --divider: #262626; --accent: #f1f1f1; --on-accent: #111111;
+  }
+
+  /* Ventana sin barra de título: en Hyprland las ventanas van sin decoración */
+  .win {
+    width: 1200px; height: 740px; border-radius: 10px; overflow: hidden;
+    background: var(--bg); color: var(--text);
+    box-shadow: 0 12px 40px rgba(0,0,0,.25);
+    display: grid; grid-template-columns: 240px 360px 1fr;
+    font-size: 14px;
+  }
+  svg.i { width: 20px; height: 20px; fill: currentColor; flex: none; }
+  svg.i.s { width: 16px; height: 16px; }
+  svg.i.xs { width: 13px; height: 13px; }
+
+  /* Columna 1: feeds */
+  .side { background: var(--side); border-right: 1px solid var(--divider); display: flex; flex-direction: column; padding: 14px 0 10px; }
+  .side .app { font-size: 18px; font-weight: 500; padding: 4px 20px 14px; }
+  .s-item { display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 12px 0 14px; margin: 0 8px; border-radius: 8px; color: var(--text); }
+  .s-item.active { background: var(--surface2); font-weight: 500; }
+  .s-item .n { margin-left: auto; font-size: 12.5px; color: var(--text2); }
+  .s-item .ico { color: var(--text2); display: flex; }
+  .s-item.sub { padding-left: 44px; color: var(--text2); height: 30px; }
+  .s-label { font-size: 11.5px; color: var(--text3); padding: 14px 22px 6px; letter-spacing: .05em; text-transform: uppercase; }
+  .s-foot { margin-top: auto; border-top: 1px solid var(--divider); padding-top: 8px; }
+  .sync { font-size: 12px; color: var(--text3); padding: 6px 22px 2px; display: flex; align-items: center; gap: 6px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text2); display: inline-block; }
+
+  /* Columna 2: lista */
+  .list { border-right: 1px solid var(--divider); display: flex; flex-direction: column; min-width: 0; }
+  .bar { height: 52px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 10px 0 18px; border-bottom: 1px solid var(--divider); }
+  .bar .title { flex: 1; font-size: 16px; font-weight: 500; }
+  .bar .title small { font-size: 13px; font-weight: 400; color: var(--text3); margin-left: 6px; }
+  .icon-btn { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; color: var(--text2); }
+  .row { padding: 11px 18px; border-bottom: 1px solid var(--divider); display: flex; flex-direction: column; gap: 4px; }
+  .row .t { font-size: 14.5px; line-height: 1.35; font-weight: 500;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .row.read .t { font-weight: 400; color: var(--text3); }
+  .row .m { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text2); }
+  .row.read .m { color: var(--text3); }
+  .row .m .sp { flex: 1; }
+  .row.sel { background: var(--surface); box-shadow: inset 3px 0 0 var(--accent); }
+  .badge { font-size: 10px; font-weight: 500; letter-spacing: .05em; color: var(--text3);
+    border: 1px solid var(--text3); border-radius: 4px; padding: 0 4px; line-height: 14px; }
+
+  /* Columna 3: lectura */
+  .reader { display: flex; flex-direction: column; min-width: 0; position: relative; }
+  .reader .bar { padding: 0 12px; gap: 4px; }
+  .seg { display: flex; background: var(--surface); border-radius: 16px; padding: 3px; }
+  .seg span { font-size: 13px; padding: 5px 12px; border-radius: 13px; color: var(--text2); }
+  .seg span.on { background: var(--accent); color: var(--on-accent); font-weight: 500; }
+  .seg.disabled { opacity: .45; }
+  .progress { height: 2px; background: var(--surface2); position: relative; flex: none; }
+  .progress::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 35%; background: var(--accent); }
+  .article { overflow: hidden; padding: 32px 0; }
+  .article .col { max-width: 640px; margin: 0 auto; padding: 0 32px; }
+  .article .src { font-size: 13px; color: var(--text2); margin-bottom: 10px; }
+  .article h1 { font-size: 28px; line-height: 1.25; font-weight: 500; margin-bottom: 14px; }
+  .note { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text3);
+    border: 1px solid var(--divider); border-radius: 14px; padding: 3px 10px 3px 8px; margin-bottom: 22px; }
+  .article p { font-size: 17px; line-height: 1.65; margin-bottom: 16px; }
+  .article p.pending { color: var(--text3); }
+  .article .lbl { font-size: 12px; color: var(--text3); letter-spacing: .05em; text-transform: uppercase; margin: 6px 0 8px; }
+  .links { display: flex; gap: 10px; margin-top: 6px; }
+  .btn-o { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--divider); border-radius: 18px;
+    height: 36px; padding: 0 14px; font-size: 13.5px; color: var(--text); }
+  .toast { position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+    background: var(--accent); color: var(--on-accent); font-size: 13px; padding: 8px 16px; border-radius: 18px;
+    display: flex; gap: 8px; align-items: center; white-space: nowrap; }
+
+  /* Ajustes */
+  .win.settings { grid-template-columns: 240px 1fr; }
+  .set { overflow: hidden; }
+  .set .col { max-width: 640px; padding: 8px 40px 32px; }
+  .set h3 { font-size: 11.5px; color: var(--text3); letter-spacing: .05em; text-transform: uppercase; font-weight: 400; margin: 22px 0 6px; }
+  .f { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--divider); }
+  .f .tx { flex: 1; }
+  .f .a { font-size: 14.5px; }
+  .f .b { font-size: 12.5px; color: var(--text2); margin-top: 2px; display: flex; gap: 6px; align-items: center; }
+  .input { width: 260px; height: 32px; border: 1px solid var(--divider); border-radius: 6px; background: var(--surface);
+    padding: 0 10px; display: flex; align-items: center; font-size: 13.5px; color: var(--text2); }
+  .switch { width: 40px; height: 24px; border-radius: 12px; background: var(--surface2); position: relative; flex: none; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--text3); }
+  .switch.on { background: var(--accent); }
+  .switch.on::after { left: 19px; background: var(--on-accent); }
+  .pill-btn { font-size: 13px; font-weight: 500; border: 1px solid var(--text); border-radius: 15px; padding: 5px 12px; flex: none; }
+  .select { height: 32px; border: 1px solid var(--divider); border-radius: 6px; padding: 0 10px; display: flex; align-items: center; gap: 6px; font-size: 13.5px; }
+
+  /* Búsqueda de papers */
+  .searchbar { flex: 1; height: 42px; background: var(--surface); border-radius: 21px; display: flex; align-items: center;
+    gap: 10px; padding: 0 14px; font-size: 15px; color: var(--text); min-width: 0; }
+  .searchbar svg { color: var(--text3); }
+  .caret { width: 1.5px; height: 18px; background: var(--text); margin-left: -8px; }
+  .as-en { font-size: 12.5px; color: var(--text3); padding: 8px 18px 0; display: flex; align-items: center; gap: 6px; }
+  .chips { display: flex; gap: 6px; padding: 10px 16px 4px; flex-wrap: wrap; align-items: center; }
+  .chips .k { font-size: 12.5px; color: var(--text3); margin-right: 2px; }
+  .chip { font-size: 13px; padding: 5px 11px; border-radius: 15px; border: 1px solid var(--divider); color: var(--text2); }
+  .chip.on { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 500; }
+  .recent-h { font-size: 12.5px; color: var(--text3); padding: 18px 20px 4px; letter-spacing: .04em; text-transform: uppercase; }
+  .recent { display: flex; align-items: center; gap: 14px; padding: 11px 20px; font-size: 15px; color: var(--text); }
+  .recent .ico { color: var(--text3); display: flex; }
+  .recent .x { margin-left: auto; color: var(--text3); display: flex; }
+  .res-head { font-size: 12.5px; color: var(--text3); padding: 10px 16px; border-bottom: 1px solid var(--divider); line-height: 1.4; }
+  .authors { font-size: 14px; color: var(--text2); margin-bottom: 12px; line-height: 1.45; }
+  .save-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: var(--accent); color: var(--on-accent);
+    height: 42px; padding: 0 20px; border-radius: 21px; font-size: 14.5px; font-weight: 500; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; align-items: center; }
+
+  /* Gestión de feeds */
+  .fd-folder { display: flex; align-items: center; gap: 8px; padding: 16px 20px 6px; font-size: 12.5px; color: var(--text3);
+    letter-spacing: .04em; text-transform: uppercase; }
+  .fd-folder .sp { flex: 1; }
+  .fd-folder svg { color: var(--text3); }
+  .fd { display: flex; align-items: center; gap: 14px; padding: 10px 20px; border-bottom: 1px solid var(--divider); }
+  .fd .ico { color: var(--text3); display: flex; }
+  .fd .tx { flex: 1; min-width: 0; }
+  .fd .a { font-size: 15px; color: var(--text); }
+  .fd .b { font-size: 12.5px; color: var(--text3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; gap: 5px; align-items: center; }
+  .fd .b.err { color: var(--text); font-weight: 500; }
+  .fd.sel { background: var(--surface); box-shadow: inset 3px 0 0 var(--accent); }
+  .form { padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; }
+  .fl { font-size: 12.5px; color: var(--text2); margin-bottom: 6px; }
+  .fi { height: 46px; border: 1px solid var(--divider); background: var(--surface); border-radius: 10px; padding: 0 14px;
+    display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--text); }
+  .fi .sp { flex: 1; }
+  .fi.focus { border-color: var(--accent); }
+  .help { font-size: 12.5px; color: var(--text3); line-height: 1.4; margin-top: 6px; }
+  .found { border: 1px solid var(--divider); border-radius: 12px; overflow: hidden; }
+  .opt { display: flex; gap: 12px; padding: 12px 14px; align-items: flex-start; border-bottom: 1px solid var(--divider); }
+  .opt:last-child { border-bottom: none; }
+  .radio { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--text3); flex: none; margin-top: 1px; position: relative; }
+  .radio.on { border-color: var(--accent); }
+  .radio.on::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--accent); }
+  .opt .a { font-size: 14.5px; color: var(--text); }
+  .opt .b { font-size: 12.5px; color: var(--text3); margin-top: 3px; line-height: 1.4; }
+  .row-toggle { display: flex; gap: 14px; align-items: center; }
+  .row-toggle .tx { flex: 1; }
+  .row-toggle .a { font-size: 15px; }
+  .row-toggle .b { font-size: 12.5px; color: var(--text3); margin-top: 2px; line-height: 1.4; }
+  .primary { height: 46px; border-radius: 23px; background: var(--accent); color: var(--on-accent); display: flex;
+    align-items: center; justify-content: center; font-size: 15px; font-weight: 500; }
+  .danger { height: 46px; border-radius: 23px; border: 1px solid var(--divider); color: var(--text); display: flex;
+    align-items: center; justify-content: center; font-size: 15px; }
+  .stat { display: flex; justify-content: space-between; font-size: 13.5px; padding: 6px 0; border-bottom: 1px solid var(--divider); }
+  .stat span:first-child { color: var(--text2); }
+
+  .win.feeds { grid-template-columns: 240px 360px 1fr; }
+  .feeds-col { border-right: 1px solid var(--divider); display: flex; flex-direction: column; overflow: hidden; }
+  .panel .form { max-width: 520px; padding: 24px 40px; }
+  .panel .primary, .panel .danger { width: 160px; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="more" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></symbol>
+  <symbol id="done-all" viewBox="0 0 24 24"><path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/></symbol>
+  <symbol id="bookmark" viewBox="0 0 24 24"><path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2z"/></symbol>
+  <symbol id="bookmark-o" viewBox="0 0 24 24"><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z"/></symbol>
+  <symbol id="open" viewBox="0 0 24 24"><path d="M19 19H5V5h7V3H5a2 2 0 00-2 2v14a2 2 0 002 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></symbol>
+  <symbol id="pdf" viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 12h8v2H8v-2zm0 4h8v2H8v-2z"/></symbol>
+  <symbol id="list" viewBox="0 0 24 24"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></symbol>
+  <symbol id="unread" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 18a8 8 0 110-16 8 8 0 010 16zm0-13a5 5 0 100 10 5 5 0 000-10z"/></symbol>
+  <symbol id="expand" viewBox="0 0 24 24"><path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"/></symbol>
+  <symbol id="chevron" viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></symbol>
+  <symbol id="tune" viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></symbol>
+  <symbol id="refresh" viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></symbol>
+  <symbol id="history" viewBox="0 0 24 24"><path d="M13 3a9 9 0 00-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0013 21a9 9 0 000-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></symbol>
+  <symbol id="add" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></symbol>
+  <symbol id="edit" viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 000-1.41l-2.34-2.34a.996.996 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></symbol>
+  <symbol id="rss" viewBox="0 0 24 24"><path d="M6.18 15.64a2.18 2.18 0 010 4.36 2.18 2.18 0 010-4.36M4 4.44A15.56 15.56 0 0119.56 20h-2.83A12.73 12.73 0 004 7.27V4.44m0 5.66a9.9 9.9 0 019.9 9.9h-2.83A7.07 7.07 0 004 12.93V10.1z"/></symbol>
+  <symbol id="warn" viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></symbol>
+  <symbol id="close" viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></symbol>
+  <symbol id="translate" viewBox="0 0 24 24"><path d="M12.87 15.07l-2.54-2.51.03-.03A17.52 17.52 0 0014.07 6H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z"/></symbol>
+</svg>
+
+<div class="intro">
+  <h1>Maquetas de PC del lector RSS</h1>
+  <p>La app de escritorio en Rust con GPUI. Usa el mismo estilo que la de Android: negro, blanco y grises, Roboto, y tema claro u oscuro según el sistema.</p>
+  <p>En pantalla grande todo cabe a la vez, en tres columnas: feeds, lista de artículos y lectura. Las ventanas no llevan barra de título porque Hyprland no la pone.</p>
+</div>
+
+<!-- Columna de feeds, igual en las tres pantallas -->
+<template id="side">
+  <aside class="side">
+    <div class="app">Atalaya</div>
+    <div class="s-item"><span class="ico"><svg class="i"><use href="#list"/></svg></span>Todos<span class="n">58</span></div>
+    <div class="s-item __unread"><span class="ico"><svg class="i"><use href="#unread"/></svg></span>Sin leer<span class="n">21</span></div>
+    <div class="s-item"><span class="ico"><svg class="i"><use href="#bookmark-o"/></svg></span>Guardados<span class="n">3</span></div>
+    <div class="s-item __search"><span class="ico"><svg class="i"><use href="#search"/></svg></span>Buscar papers</div>
+    <div class="s-label">Carpetas</div>
+    <div class="s-item"><span class="ico"><svg class="i"><use href="#expand"/></svg></span>Tecnología<span class="n">9</span></div>
+    <div class="s-item sub">The Verge<span class="n">4</span></div>
+    <div class="s-item sub">Ars Technica<span class="n">3</span></div>
+    <div class="s-item sub">Xataka<span class="n">2</span></div>
+    <div class="s-item __papers"><span class="ico"><svg class="i"><use href="#expand"/></svg></span>Papers<span class="n">9</span></div>
+    <div class="s-item sub">arXiv · cs.CL<span class="n">5</span></div>
+    <div class="s-item sub">arXiv · «small language model»<span class="n">4</span></div>
+    <div class="s-item"><span class="ico"><svg class="i"><use href="#chevron"/></svg></span>Noticias<span class="n">3</span></div>
+    <div class="s-foot">
+      <div class="s-item __feeds"><span class="ico"><svg class="i"><use href="#rss"/></svg></span>Feeds</div>
+      <div class="s-item __settings"><span class="ico"><svg class="i"><use href="#tune"/></svg></span>Ajustes</div>
+      <div class="sync"><span class="dot"></span>Sincronizado (5 min)</div>
+    </div>
+  </aside>
+</template>
+
+<!-- 1. Principal -->
+<section class="screen-section">
+  <h2>1. Vista principal, con un artículo traducido</h2>
+  <p>El artículo seleccionado se marca con una franja a la izquierda y se lee en la columna derecha. El texto ocupa como mucho unos 640 píxeles de ancho, para que las líneas no sean demasiado largas en una pantalla ancha.</p>
+  <div class="pair" data-screen>
+    <div class="win" data-active="unread">
+      <slot-side></slot-side>
+      <section class="list">
+        <div class="bar">
+          <div class="title">Sin leer<small>21</small></div>
+          <div class="icon-btn"><svg class="i"><use href="#refresh"/></svg></div>
+          <div class="icon-btn"><svg class="i"><use href="#done-all"/></svg></div>
+        </div>
+        <div class="row sel"><div class="t">Google presenta un nuevo chip para centros de datos con el doble de eficiencia</div><div class="m">The Verge · 2 h<span class="sp"></span><span class="badge">EN</span></div></div>
+        <div class="row"><div class="t">Por qué los discos duros siguen siendo la opción más barata para copias de seguridad</div><div class="m">Ars Technica · 3 h<span class="sp"></span><span class="badge">EN</span></div></div>
+        <div class="row"><div class="t">Modelos de lenguaje pequeños como agentes: una evaluación sistemática</div><div class="m">arXiv · cs.CL · 4 h<span class="sp"></span><span class="badge">EN</span></div></div>
+        <div class="row"><div class="t">La Unión Europea aprueba nuevas normas para la reparación de móviles</div><div class="m">El País · 4 h</div></div>
+        <div class="row"><div class="t">Probamos el nuevo portátil con pantalla OLED: autonomía sorprendente</div><div class="m">Xataka · 5 h</div></div>
+        <div class="row"><div class="t">Destilar el razonamiento en modelos de menos de mil millones de parámetros</div><div class="m">arXiv · «small language model» · 6 h<span class="sp"></span><span class="badge">EN</span></div></div>
+        <div class="row read"><div class="t">Linux 7.2 llega con mejoras en la gestión de memoria</div><div class="m">Phoronix · 8 h<svg class="i xs"><use href="#bookmark"/></svg><span class="sp"></span><span class="badge">EN</span></div></div>
+        <div class="row read"><div class="t">La NASA retrasa de nuevo la misión a la Luna</div><div class="m">Ars Technica · 10 h<span class="sp"></span><span class="badge">EN</span></div></div>
+      </section>
+      <section class="reader">
+        <div class="bar">
+          <div class="seg"><span class="on">Español</span><span>Original</span></div>
+          <div style="flex:1"></div>
+          <div class="icon-btn"><svg class="i"><use href="#bookmark-o"/></svg></div>
+          <div class="icon-btn"><svg class="i"><use href="#open"/></svg></div>
+          <div class="icon-btn"><svg class="i"><use href="#more"/></svg></div>
+        </div>
+        <div class="article"><div class="col">
+          <div class="src">The Verge · Jess Weatherbed · hace 2 h</div>
+          <h1>Google presenta un nuevo chip para centros de datos con el doble de eficiencia</h1>
+          <div class="note"><svg class="i xs"><use href="#translate"/></svg>Traducido</div>
+          <p>Google anunció hoy la séptima generación de sus procesadores para inteligencia artificial, que según la empresa consumen la mitad de energía que el modelo anterior.</p>
+          <p>Los nuevos chips llegarán primero a los centros de datos de Estados Unidos y Europa a principios del próximo año.</p>
+          <p>La compañía no ha dado detalles sobre el precio, pero asegura que los clientes de su nube podrán usarlos sin cambiar su código.</p>
+        </div></div>
+      </section>
+    </div>
+  </div>
+</section>
+
+<!-- 2. Paper -->
+<section class="screen-section">
+  <h2>2. Un paper de arXiv, mientras se traduce</h2>
+  <p>Los papers llegan como cualquier otro artículo: título, autores y resumen. Mientras se traduce, se ve el original en gris con una barra de avance. Abajo hay dos accesos: la página del paper en arXiv y el PDF completo.</p>
+  <div class="pair" data-screen>
+    <div class="win" data-active="papers">
+      <slot-side></slot-side>
+      <section class="list">
+        <div class="bar">
+          <div class="title">Papers<small>9</small></div>
+          <div class="icon-btn"><svg class="i"><use href="#refresh"/></svg></div>
+          <div class="icon-btn"><svg class="i"><use href="#done-all"/></svg></div>
+        </div>
+        <div class="row"><div class="t">Modelos de lenguaje pequeños como agentes: una evaluación sistemática</div><div class="m">arXiv · cs.CL · 4 h<span class="sp"></span><span class="badge">EN</span></div></div>
+        <div class="row sel"><div class="t">Distilling reasoning into sub-billion parameter models</div><div class="m">arXiv · «small language model» · 6 h<span class="sp"></span><span class="badge">EN</span></div></div>
+        <div class="row"><div class="t">Un banco de pruebas multilingüe para la traducción automática de textos científicos</div><div class="m">arXiv · cs.CL · 7 h<span class="sp"></span><span class="badge">EN</span></div></div>
+        <div class="row"><div class="t">Cuantización a 4 bits sin pérdida de calidad en modelos de 1.000 millones de parámetros</div><div class="m">arXiv · «small language model» · 9 h<span class="sp"></span><span class="badge">EN</span></div></div>
+        <div class="row"><div class="t">Atención dispersa para contextos largos en dispositivos móviles</div><div class="m">arXiv · cs.CL · 11 h<span class="sp"></span><span class="badge">EN</span></div></div>
+        <div class="row read"><div class="t">Evaluación de alucinaciones en modelos compactos</div><div class="m">arXiv · cs.CL · 1 d<span class="sp"></span><span class="badge">EN</span></div></div>
+      </section>
+      <section class="reader">
+        <div class="bar" style="border-bottom:none">
+          <div class="seg disabled"><span>Español</span><span class="on">Original</span></div>
+          <div style="flex:1"></div>
+          <div class="icon-btn"><svg class="i"><use href="#bookmark-o"/></svg></div>
+          <div class="icon-btn"><svg class="i"><use href="#open"/></svg></div>
+          <div class="icon-btn"><svg class="i"><use href="#more"/></svg></div>
+        </div>
+        <div class="progress"></div>
+        <div class="article"><div class="col">
+          <div class="src">arXiv · cs.CL · Chen, Ortega, Nakamura y otros 2 · hace 6 h</div>
+          <h1>Distilling reasoning into sub-billion parameter models</h1>
+          <div class="lbl">Abstract</div>
+          <p class="pending">Large language models show strong multi-step reasoning, but their size makes them impractical on edge devices. We study how far this ability can be transferred to models with fewer than one billion parameters.</p>
+          <p class="pending">Using a curriculum of synthetic reasoning traces, our 600M model recovers most of the teacher's accuracy on three benchmarks while running on a phone.</p>
+          <div class="links">
+            <span class="btn-o"><svg class="i s"><use href="#open"/></svg>Ver en arXiv</span>
+            <span class="btn-o"><svg class="i s"><use href="#pdf"/></svg>Abrir PDF</span>
+          </div>
+        </div></div>
+        <div class="toast"><svg class="i s"><use href="#translate"/></svg>Traduciendo…</div>
+      </section>
+    </div>
+  </div>
+</section>
+
+<!-- 3. Ajustes -->
+<section class="screen-section">
+  <h2>3. Ajustes</h2>
+  <p>En el PC los ajustes ocupan las dos columnas de la derecha. Tienen los mismos apartados que en el móvil.</p>
+  <div class="pair" data-screen>
+    <div class="win settings" data-active="settings">
+      <slot-side></slot-side>
+      <section class="set">
+        <div class="bar" style="padding-left:40px"><div class="title">Ajustes</div></div>
+        <div class="col">
+          <h3>Servidor Miniflux</h3>
+          <div class="f"><div class="tx"><div class="a">Dirección</div></div><div class="input">http://ai-lab:8080</div></div>
+          <div class="f"><div class="tx"><div class="a">Clave de la API</div></div><div class="input">••••••••••••</div></div>
+          <div class="f"><div class="tx"><div class="a">Estado</div><div class="b"><span class="dot"></span>Conectado · hace 5 min</div></div><span class="pill-btn">Probar</span></div>
+          <h3>Lectura</h3>
+          <div class="f"><div class="tx"><div class="a">Tamaño de letra</div></div><div class="select">17 px <svg class="i s"><use href="#expand"/></svg></div></div>
+          <div class="f"><div class="tx"><div class="a">Marcar como leído al abrir</div></div><span class="switch on"></span></div>
+        </div>
+      </section>
+    </div>
+  </div>
+</section>
+
+
+<!-- 4. Búsqueda de papers -->
+<section class="screen-section">
+  <h2>4. Buscar papers</h2>
+  <p>En el PC caben el buscador, los resultados y el paper abierto en una sola vista. La búsqueda se escribe en español y se envía a arXiv en inglés. Al vaciar el campo, la columna central muestra las búsquedas recientes, como en el móvil.</p>
+  <div class="pair" data-screen>
+    <div class="win" data-active="search">
+      <slot-side></slot-side>
+      <section class="list">
+        <div style="padding:10px 12px 0;display:flex"><div class="searchbar"><svg class="i s"><use href="#search"/></svg>modelos de lenguaje pequeños</div></div>
+        <div class="as-en"><svg class="i xs"><use href="#translate"/></svg>Se buscará en inglés: «small language models»</div>
+        <div class="chips"><span class="chip on">Todo</span><span class="chip">Título</span><span class="chip">Autor</span><span class="chip">Resumen</span></div>
+        <div class="chips" style="padding-bottom:10px"><span class="chip on">Más recientes</span><span class="chip">Relevancia</span></div>
+        <div class="res-head" style="border-top:1px solid var(--divider)">38 resultados</div>
+        <div class="row sel"><div class="t">Destilar el razonamiento en modelos de menos de mil millones de parámetros</div><div class="m">Chen y otros 4 · 21 oct 2026<span class="sp"></span><span class="badge">CS.CL</span></div></div>
+        <div class="row"><div class="t">Modelos de lenguaje pequeños como agentes: una evaluación sistemática</div><div class="m">Ortega y otros 2 · 20 oct 2026<svg class="i xs"><use href="#bookmark"/></svg><span class="sp"></span><span class="badge">CS.AI</span></div></div>
+        <div class="row"><div class="t">Cuantización a 4 bits sin pérdida de calidad en modelos compactos</div><div class="m">Nakamura y Raman · 18 oct 2026<span class="sp"></span><span class="badge">CS.LG</span></div></div>
+        <div class="row"><div class="t">¿Cuánto saben realmente los modelos pequeños? Un estudio de memorización</div><div class="m">Becker y otros 6 · 15 oct 2026<span class="sp"></span><span class="badge">CS.CL</span></div></div>
+        <div class="row"><div class="t">Atención dispersa para contextos largos en dispositivos móviles</div><div class="m">Li y Gómez · 12 oct 2026<span class="sp"></span><span class="badge">CS.CL</span></div></div>
+      </section>
+      <section class="reader">
+        <div class="bar">
+          <div class="seg"><span class="on">Español</span><span>Original</span></div>
+          <div style="flex:1"></div>
+          <div class="icon-btn"><svg class="i"><use href="#bookmark-o"/></svg></div>
+          <div class="icon-btn"><svg class="i"><use href="#open"/></svg></div>
+          <div class="icon-btn"><svg class="i"><use href="#more"/></svg></div>
+        </div>
+        <div class="article"><div class="col">
+          <div class="src">arXiv:2610.08812 · cs.CL · 21 oct 2026</div>
+          <h1>Destilar el razonamiento en modelos de menos de mil millones de parámetros</h1>
+          <div class="authors">Wei Chen, Lucía Ortega, Kenji Nakamura, Priya Raman, Tom Becker</div>
+          <div class="note"><svg class="i xs"><use href="#translate"/></svg>Traducido</div>
+          <div class="lbl">Resumen</div>
+          <p>Los modelos de lenguaje grandes razonan bien en varios pasos, pero su tamaño los hace poco prácticos en dispositivos pequeños. Estudiamos cuánto de esa capacidad se puede pasar a modelos de menos de mil millones de parámetros.</p>
+          <p>Con un currículo de razonamientos sintéticos, nuestro modelo de 600 millones de parámetros recupera casi toda la precisión del modelo maestro en tres pruebas y funciona en un teléfono.</p>
+          <div class="actions">
+            <span class="save-btn"><svg class="i s"><use href="#bookmark-o"/></svg>Guardar</span>
+            <span class="btn-o"><svg class="i s"><use href="#open"/></svg>Ver en arXiv</span>
+            <span class="btn-o"><svg class="i s"><use href="#pdf"/></svg>Abrir PDF</span>
+          </div>
+        </div></div>
+      </section>
+    </div>
+  </div>
+</section>
+
+
+<!-- 5. Feeds -->
+<section class="screen-section">
+  <h2>5. Feeds</h2>
+  <p>En el PC, la lista de feeds ocupa la columna central y el formulario la derecha. Aquí se ve «Añadir feed», con el botón + de arriba. Al elegir un feed de la lista, la derecha muestra su edición, con los mismos campos que en el móvil.</p>
+  <div class="pair" data-screen>
+    <div class="win feeds" data-active="feeds">
+      <slot-side></slot-side>
+      <section class="feeds-col">
+        <div class="bar">
+          <div class="title">Feeds<small>7</small></div>
+          <div class="icon-btn"><svg class="i"><use href="#add"/></svg></div>
+        </div>
+        <div class="fd-folder">Tecnología<span class="sp"></span><svg class="i s"><use href="#edit"/></svg></div>
+<div class="fd"><span class="ico"><svg class="i s"><use href="#rss"/></svg></span><div class="tx"><div class="a">The Verge</div><div class="b">theverge.com · artículo completo</div></div><svg class="i s" style="color:var(--text3)"><use href="#chevron"/></svg></div>
+<div class="fd"><span class="ico"><svg class="i s"><use href="#rss"/></svg></span><div class="tx"><div class="a">Ars Technica</div><div class="b">arstechnica.com</div></div><svg class="i s" style="color:var(--text3)"><use href="#chevron"/></svg></div>
+<div class="fd"><span class="ico"><svg class="i s"><use href="#rss"/></svg></span><div class="tx"><div class="a">Xataka</div><div class="b">xataka.com</div></div><svg class="i s" style="color:var(--text3)"><use href="#chevron"/></svg></div>
+<div class="fd-folder">Noticias<span class="sp"></span><svg class="i s"><use href="#edit"/></svg></div>
+<div class="fd"><span class="ico"><svg class="i s"><use href="#rss"/></svg></span><div class="tx"><div class="a">El País</div><div class="b">elpais.com</div></div><svg class="i s" style="color:var(--text3)"><use href="#chevron"/></svg></div>
+<div class="fd"><span class="ico"><svg class="i s"><use href="#rss"/></svg></span><div class="tx"><div class="a">Phoronix</div><div class="b err"><svg class="i xs"><use href="#warn"/></svg>No se pudo actualizar · hace 2 días</div></div><svg class="i s" style="color:var(--text3)"><use href="#chevron"/></svg></div>
+<div class="fd-folder">Papers<span class="sp"></span><svg class="i s"><use href="#edit"/></svg></div>
+<div class="fd"><span class="ico"><svg class="i s"><use href="#rss"/></svg></span><div class="tx"><div class="a">Papers guardados</div><div class="b">Creado por Atalaya</div></div><svg class="i s" style="color:var(--text3)"><use href="#chevron"/></svg></div>
+      </section>
+      <section class="reader panel">
+        <div class="bar"><div class="title" style="padding-left:28px">Añadir feed</div></div>
+        <div class="form">
+          <div><div class="fl">Dirección de la web o del feed</div><div class="fi focus">theverge.com<span class="sp"></span><svg class="i s" style="color:var(--text3)"><use href="#close"/></svg></div>
+          <div class="help">Basta con la dirección de la web: Atalaya busca sus feeds.</div></div>
+          <div><div class="fl">Feeds encontrados</div>
+          <div class="found">
+            <div class="opt"><span class="radio on"></span><div><div class="a">The Verge · Todas las noticias</div><div class="b">Inglés · unos 30 artículos al día</div></div></div>
+            <div class="opt"><span class="radio"></span><div><div class="a">The Verge · Tecnología</div><div class="b">Inglés · unos 12 artículos al día</div></div></div>
+            <div class="opt"><span class="radio"></span><div><div class="a">The Verge · Ciencia</div><div class="b">Inglés · unos 4 artículos al día</div></div></div>
+          </div></div>
+          <div><div class="fl">Carpeta</div><div class="fi">Tecnología<span class="sp"></span><svg class="i s"><use href="#expand"/></svg></div></div>
+          <div class="row-toggle"><div class="tx"><div class="a">Descargar el artículo completo</div><div class="b">Para feeds que solo traen un resumen</div></div><span class="switch"></span></div>
+          <div class="primary">Añadir</div>
+        </div>
+      </section>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Cada pantalla se escribe una vez: se le inserta la columna de feeds y se duplica en tema claro y oscuro.
+  const side = document.getElementById('side');
+  document.querySelectorAll('[data-screen]').forEach(pair => {
+    const light = pair.querySelector('.win');
+    const slot = light.querySelector('slot-side');
+    const aside = side.content.cloneNode(true);
+    const active = aside.querySelector('.__' + light.dataset.active);
+    if (active) active.classList.add('active');
+    slot.replaceWith(aside);
+    const dark = light.cloneNode(true);
+    light.classList.add('light');
+    dark.classList.add('dark');
+    const wrap = (win, label) => {
+      const box = document.createElement('div');
+      const l = document.createElement('div');
+      l.className = 'variant-label';
+      l.textContent = label;
+      box.append(l, win);
+      return box;
+    };
+    pair.replaceChildren(wrap(light, 'Claro'), wrap(dark, 'Oscuro'));
+  });
+</script>
+</body>
+</html>
