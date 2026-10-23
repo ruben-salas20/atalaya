@@ -98,7 +98,7 @@ En `crates/atalaya-desktop`. La interfaz sigue `docs/diseño/maquetas-pc.html`. 
 
 **Reparto:** 5.1 un subagente. Después, [5.2, 5.4] en paralelo.
 
-- [ ] **5.1 Esqueleto con GPUI.** Versión de GPUI y `gpui-component` fijadas, ventana de tres columnas con la lista real. Hecho cuando la ventana muestra los artículos del servicio.
+- [x] **5.1 Esqueleto con GPUI.** Versión de GPUI y `gpui-component` fijadas, ventana de tres columnas con la lista real. Hecho cuando la ventana muestra los artículos del servicio.
 - [ ] **5.2 Lectura.** Selector «Original», «Traduciendo…», leído y guardado [L1–L6]. Hecho cuando se lee y se guarda un artículo, y el cambio se ve en Miniflux.
 - [ ] **5.4 Feeds y ajustes.** Pantallas 3 y 5 [F1–F6, S3]. Hecho cuando se añade un feed desde el PC.
 
