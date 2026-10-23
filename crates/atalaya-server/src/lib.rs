@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod config;
+pub mod content;
 pub mod entries;
 pub mod error;
 pub mod feed_stats;
@@ -38,11 +39,12 @@ impl AppState {
         let miniflux = Miniflux::new(http.clone(), &config.miniflux_url, &config.miniflux_api_key);
         let store = Store::open(&config.data_dir).unwrap_or_else(|e| panic!("{e}"));
         let llama = Llama::new(http.clone(), &config.llama_url, &config.llama_model);
+        let translations = Translations::new(store, llama, miniflux.clone());
         Self {
             config,
             http,
             miniflux,
-            translations: Translations::new(store, llama),
+            translations,
         }
     }
 }
