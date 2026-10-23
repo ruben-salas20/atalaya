@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Adjust
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.RssFeed
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material3.HorizontalDivider
@@ -65,7 +66,7 @@ fun syncLabel(lastSyncAt: Instant?, now: Instant): String =
     if (lastSyncAt == null) "Sin sincronizar"
     else "Sincronizado (${relativeTime(lastSyncAt, now).removePrefix("hace ")})"
 
-/** Menú lateral (pantalla 2): vistas fijas, carpetas con sus feeds, Feeds, Ajustes y la sincronización. */
+/** Menú lateral (pantalla 2): vistas fijas, «Buscar papers», carpetas con sus feeds, Feeds, Ajustes y la sincronización. */
 @Composable
 fun ListDrawer(
     sidebar: Sidebar?,
@@ -77,6 +78,7 @@ fun ListDrawer(
     onToggleCategory: (Long) -> Unit,
     onOpenFeeds: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenPapers: () -> Unit,
 ) {
     val c = Atalaya.colors
     ModalDrawerSheet(
@@ -102,6 +104,7 @@ fun ListDrawer(
                     val sel = ListSelection.Fixed(view)
                     DrawerItem(view.label(), icon = icon, count = count, active = selection == sel, onClick = { onSelect(sel) })
                 }
+                DrawerItem("Buscar papers", icon = Icons.Filled.Search, onClick = onOpenPapers)
                 val categories = sidebar?.categories.orEmpty()
                 if (categories.isNotEmpty()) {
                     DrawerSeparator()

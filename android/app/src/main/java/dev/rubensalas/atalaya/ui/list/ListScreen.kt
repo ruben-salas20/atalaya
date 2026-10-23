@@ -72,6 +72,7 @@ fun ListScreen(
     onOpenArticle: (Id) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenFeeds: () -> Unit,
+    onOpenPapers: () -> Unit,
 ) {
     val vm: ListViewModel = viewModel(factory = viewModelFactory { initializer { ListViewModel(container.list) } })
     val state by vm.state.collectAsStateWithLifecycle()
@@ -144,6 +145,7 @@ fun ListScreen(
                 onToggleCategory = { id -> expanded = if (id in expanded) expanded - id else expanded + id },
                 onOpenFeeds = { closeDrawerThen(onOpenFeeds) },
                 onOpenSettings = { closeDrawerThen(onOpenSettings) },
+                onOpenPapers = { closeDrawerThen(onOpenPapers) },
             )
         },
     ) {

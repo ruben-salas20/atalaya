@@ -70,6 +70,91 @@ class AtalayaClientTest {
     }
 
     @Test
+    fun translatePaperQuery() = runTest {
+        server.enqueue(MockResponse(body = """{"q":"modelos pequeños","english":"small models"}"""))
+        val t = client.translatePaperQuery("modelos pequeños")
+        assertEquals(QueryTranslation("modelos pequeños", "small models"), t)
+        val url = server.takeRequest().url
+        assertEquals("/api/papers/translate", url.encodedPath)
+        assertEquals("modelos pequeños", url.queryParameter("q"))
+    }
+
+    @Test
+    fun searchPapersQueryAndPage() = runTest {
+        server.enqueue(
+            MockResponse(
+                body = """{"english_query":"small language models","total":38,"papers":[
+                {"arxiv_id":"2610.08812","title":"Destilar el razonamiento","original_title":"Distilling reasoning",
+                "title_translated":true,"authors":["Wei Chen","Lucía Ortega"],"published_at":"2026-10-21T17:59:59Z",
+                "category":"cs.CL","saved_entry_id":null},
+                {"arxiv_id":"hep-th/9901001","title":"Old","original_title":"Old","title_translated":false,
+                "authors":[],"published_at":"1999-01-01T00:00:00Z","category":"hep-th","saved_entry_id":42}]}""",
+            ),
+        )
+        val page = client.searchPapers(PaperQuery("modelos", field = PaperField.Abstract, sort = PaperSort.Relevance, limit = 20, offset = 40))
+        assertEquals("small language models", page.englishQuery)
+        assertEquals(38L, page.total)
+        assertEquals(listOf("Wei Chen", "Lucía Ortega"), page.papers[0].authors)
+        assertNull(page.papers[0].savedEntryId)
+        assertEquals(42L, page.papers[1].savedEntryId)
+        assertEquals(java.time.Instant.parse("2026-10-21T17:59:59Z"), page.papers[0].publishedAt)
+        val url = server.takeRequest().url
+        assertEquals("/api/papers/search", url.encodedPath)
+        assertEquals("q=modelos&field=abstract&sort=relevance&limit=20&offset=40", url.encodedQuery)
+    }
+
+    @Test
+    fun paperParsesFlattenedSummaryAndEncodesOldId() = runTest {
+        server.enqueue(
+            MockResponse(
+                body = """{"arxiv_id":"hep-th/9901001","title":"Título","original_title":"Title","title_translated":true,
+                "authors":["A. Uno"],"published_at":"1999-01-01T00:00:00Z","category":"hep-th","saved_entry_id":null,
+                "abstract_text":"First.\n\nSecond.","translation":"done","translated_abstract":"Primero.\n\nSegundo.",
+                "abs_url":"https://arxiv.org/abs/hep-th/9901001","pdf_url":"https://arxiv.org/pdf/hep-th/9901001"}""",
+            ),
+        )
+        val paper = client.paper("hep-th/9901001")
+        assertEquals(TranslationState.Done, paper.translation)
+        assertEquals("Primero.\n\nSegundo.", paper.translatedAbstract)
+        assertEquals("hep-th", paper.summary.category)
+        assertEquals("https://arxiv.org/pdf/hep-th/9901001", paper.pdfUrl)
+        assertEquals("/api/papers/hep-th%2F9901001", server.takeRequest().url.encodedPath)
+    }
+
+    @Test
+    fun paperPendingWithoutTranslation() = runTest {
+        server.enqueue(
+            MockResponse(
+                body = """{"arxiv_id":"2610.08812","title":"Distilling","original_title":"Distilling","title_translated":false,
+                "authors":[],"published_at":"2026-10-21T00:00:00Z","category":"cs.CL","saved_entry_id":9,
+                "abstract_text":"Text","translation":"pending","translated_abstract":null,
+                "abs_url":"https://arxiv.org/abs/2610.08812","pdf_url":"https://arxiv.org/pdf/2610.08812"}""",
+            ),
+        )
+        val paper = client.paper("2610.08812")
+        assertEquals(TranslationState.Pending, paper.translation)
+        assertNull(paper.translatedAbstract)
+        assertEquals(9L, paper.savedEntryId)
+    }
+
+    @Test
+    fun savePaperPostsAndReturnsEntry() = runTest {
+        server.enqueue(
+            MockResponse(
+                code = 201,
+                body = """{"id":99,"feed_id":5,"feed_title":"Papers guardados","title":"Destilar","original_title":"Distilling",
+                "title_translated":true,"lang":"en","url":"https://arxiv.org/abs/hep-th/9901001",
+                "published_at":"2026-10-21T00:00:00Z","read":false,"starred":true}""",
+            ),
+        )
+        val entry = client.savePaper("hep-th/9901001")
+        assertEquals(99L, entry.id)
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        assertEquals("/api/papers/hep-th%2F9901001/save", req.url.encodedPath)
+    }
+
+    @Test
     fun errorUsesServiceMessage() = runTest {
         server.enqueue(MockResponse(code = 401, body = """{"error":"falta la clave o no es correcta"}"""))
         val e = runCatching { client.status() }.exceptionOrNull() as ApiException

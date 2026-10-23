@@ -5,6 +5,9 @@ import dev.rubensalas.atalaya.data.api.AtalayaClient
 import dev.rubensalas.atalaya.data.list.ListRepository
 import dev.rubensalas.atalaya.data.list.OfflineListRepository
 import dev.rubensalas.atalaya.data.local.LocalDatabase
+import dev.rubensalas.atalaya.data.papers.PapersRepository
+import dev.rubensalas.atalaya.data.papers.RecentSearches
+import dev.rubensalas.atalaya.data.papers.StoredRecentSearches
 import dev.rubensalas.atalaya.data.settings.SettingsRepository
 import dev.rubensalas.atalaya.data.sync.Sync
 
@@ -20,6 +23,8 @@ class AppContainer(app: Application) {
         requestPush = { Sync.syncNow(app) },
     )
     val list: ListRepository = offline
+    val papers = PapersRepository(client, onSaved = { Sync.syncNow(app) })
+    val recentSearches: RecentSearches = StoredRecentSearches(app)
 }
 
 class AtalayaApp : Application() {
