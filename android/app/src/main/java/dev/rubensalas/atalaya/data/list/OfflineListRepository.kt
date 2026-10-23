@@ -126,6 +126,8 @@ class OfflineListRepository(
         }
         try {
             val after = client.updateEntry(id, update)
+            // Guardar pone a traducir el texto (T2): una sincronización lo baja al móvil para leerlo sin red.
+            if (update.starred == true) requestPush()
             return lock.withLock { confirm(id, update, after) } ?: after
         } catch (e: ApiException) {
             if (retryLater(e)) {
@@ -172,8 +174,9 @@ class OfflineListRepository(
     /**
      * Sincronización completa (S4): manda lo pendiente, baja el menú, los sin
      * leer y los guardados, el texto de los guardados, y borra lo viejo.
+     * Devuelve si algún guardado sigue traduciéndose, para volver a por él.
      */
-    suspend fun sync() {
+    suspend fun sync(): Boolean {
         pushPending()
         val sidebar = client.sidebar()
         val unread = client.entries(EntryQuery(view = View.Unread, limit = MAX_UNREAD))
@@ -184,8 +187,9 @@ class OfflineListRepository(
             reconcile(unread, starred.mapTo(HashSet()) { it.id })
             cleanUp(unread)
         }
-        fetchStarredContents()
+        val stillTranslating = fetchStarredContents()
         onSynced()
+        return stillTranslating
     }
 
     // -----------------------------------------------------------------------
@@ -200,7 +204,7 @@ class OfflineListRepository(
     }
 
     /** Baja el texto de los guardados que aún no lo tienen, o cuya traducción no había terminado. */
-    private suspend fun fetchStarredContents() {
+    private suspend fun fetchStarredContents(): Boolean {
         val have = dao.contentInfo().associateBy { it.id }
         val missing = dao.entries().filter { row ->
             val info = have[row.id]
@@ -215,6 +219,8 @@ class OfflineListRepository(
             }
             lock.withLock { storeEntry(fresh, opened = false) }
         }
+        val pending = TranslationState.Pending.name
+        return dao.contentInfo().any { info -> info.translation == pending && missing.any { it.id == info.id } }
     }
 
     /**

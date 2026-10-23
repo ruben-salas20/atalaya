@@ -73,7 +73,7 @@ En `android/`. La interfaz sigue `docs/diseño/maquetas.html`. Se prueba en el m
 - [x] **3.2 Lista y menú lateral.** [L1–L3, S2]. Hecho cuando la lista y el menú del móvil se parecen a las pantallas 1 y 2 de las maquetas, con datos reales.
 - [x] **3.3 Lectura y gestos.** Selector «Original», aviso «Traduciendo…» y gestos [L4–L6]. Hecho cuando se lee un artículo traducido y los gestos cambian su estado en Miniflux.
 - [x] **3.4 Feeds.** Pantallas 9 a 11 [F1–F6]. Hecho cuando se añade un feed desde el móvil y sus artículos llegan.
-- [ ] **3.5 Sin conexión y en segundo plano.** Room para guardar lo descargado y WorkManager para sincronizar [L8, S4]. Hecho cuando, en modo avión, se leen los artículos ya sincronizados.
+- [x] **3.5 Sin conexión y en segundo plano.** Room para guardar lo descargado y WorkManager para sincronizar [L8, S4]. Hecho cuando, en modo avión, se leen los artículos ya sincronizados.
 - [ ] **3.6 Uso real.** Rubén la usa un día. Se arreglan los fallos que encuentre. Hecho cuando Rubén confirma que la usa en lugar de su lector anterior.
 
 **Fase lista cuando:** la app cubre los requisitos L, T, F y S en el móvil.

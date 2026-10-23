@@ -140,6 +140,21 @@ class OfflineListRepositoryTest {
     fun tearDown() = server.close()
 
     @Test
+    fun starringOnlineFetchesTextAndRetriesWhileTranslating() = runTest {
+        repo.sync()
+        pushRequests = 0
+        service.entries[1] = service.entries[1]!!.copy(translation = TranslationState.Pending, translatedContent = null)
+        repo.updateEntry(1, EntryUpdate(starred = true))
+        assertEquals(1, pushRequests)
+        assertTrue(repo.sync())
+        assertEquals(TranslationState.Pending.name, dao.contents[1]!!.translation)
+
+        service.entries[1] = service.entries[1]!!.copy(translation = TranslationState.Done, translatedContent = "<p>Hola</p>")
+        assertFalse(repo.sync())
+        assertEquals("<p>Hola</p>", dao.contents[1]!!.translatedContent)
+    }
+
+    @Test
     fun syncKeepsUnreadAndStarredAndOnlyTheTextOfStarred() = runTest {
         repo.sync()
         assertEquals(setOf(1L, 2L), dao.rows.keys)
