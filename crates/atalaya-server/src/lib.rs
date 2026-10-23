@@ -1,7 +1,9 @@
 pub mod auth;
 pub mod config;
+pub mod entries;
 pub mod error;
 pub mod miniflux;
+pub mod sidebar;
 pub mod translations;
 
 use atalaya_api::{Health, Status};
@@ -39,6 +41,8 @@ impl AppState {
 pub fn app(state: AppState) -> Router {
     let api = Router::new()
         .route("/status", get(status))
+        .merge(sidebar::routes())
+        .merge(entries::routes())
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_api_key,
