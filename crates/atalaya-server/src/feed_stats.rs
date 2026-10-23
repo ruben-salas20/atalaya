@@ -33,11 +33,18 @@ pub struct FeedStats {
 impl FeedStats {
     /// `declared` es el idioma que dice el propio feed, si lo dice. Solo se
     /// usa cuando la detección no es fiable.
+    ///
+    /// Usa los [`SAMPLE`] artículos más nuevos: un feed no siempre los trae
+    /// en orden.
     pub fn compute(entries: &[EntrySample], declared: Option<&str>, now: DateTime<Utc>) -> Self {
-        let entries = &entries[..entries.len().min(SAMPLE)];
+        let mut entries: Vec<&EntrySample> = entries.iter().collect();
+        // Del más nuevo al más viejo; los que no tienen fecha, al final.
+        entries.sort_by_key(|e| std::cmp::Reverse(e.published_at));
+        entries.truncate(SAMPLE);
         let dates: Vec<_> = entries.iter().filter_map(|e| e.published_at).collect();
         Self {
-            lang: detect_lang(entries).or_else(|| declared.and_then(normalize_lang)),
+            lang: detect_lang(entries.iter().copied())
+                .or_else(|| declared.and_then(normalize_lang)),
             articles_per_day: articles_per_day(&dates, now),
         }
     }
@@ -73,7 +80,7 @@ pub fn articles_per_day(dates: &[DateTime<Utc>], now: DateTime<Utc>) -> Option<f
 }
 
 /// Idioma de los artículos en ISO 639-1, si la detección es fiable.
-pub fn detect_lang(entries: &[EntrySample]) -> Option<String> {
+pub fn detect_lang<'a>(entries: impl IntoIterator<Item = &'a EntrySample>) -> Option<String> {
     let mut text = String::new();
     for e in entries {
         if text.len() >= CHARS_TOTAL {
@@ -221,6 +228,21 @@ mod tests {
             "<p>La norma limita el precio del alquiler en las zonas tensionadas y obliga a los grandes propietarios a declarar sus pisos vacíos.</p>",
         )];
         assert_eq!(detect_lang(&es).as_deref(), Some("es"));
+    }
+
+    #[test]
+    fn uses_the_newest_articles_whatever_the_order() {
+        // 60 artículos, uno por hora, desordenados: solo cuentan los 50 últimos.
+        let mut entries: Vec<_> = (0..60)
+            .map(|h| EntrySample {
+                published_at: Some(now() - TimeDelta::hours(h)),
+                ..Default::default()
+            })
+            .collect();
+        entries.reverse();
+        let stats = FeedStats::compute(&entries, None, now());
+        // 49 intervalos en 49 horas: uno por hora.
+        assert_eq!(stats.articles_per_day, Some(24.0));
     }
 
     #[test]

@@ -50,7 +50,7 @@ async fn discover(
     Json(req): Json<DiscoverRequest>,
 ) -> AppResult<Json<Vec<DiscoveredFeed>>> {
     let url = normalize_url(&req.url)?;
-    let found = state.miniflux.discover(&url).await?;
+    let found = state.miniflux.discover(&url).await.map_err(remote_error)?;
 
     let mut tasks = JoinSet::new();
     for (i, sub) in found.into_iter().enumerate() {
@@ -82,7 +82,8 @@ async fn create_feed(
     let id = state
         .miniflux
         .create_feed(&feed_url, req.category_id, req.crawler)
-        .await?;
+        .await
+        .map_err(remote_error)?;
     let feed = state.miniflux.feed(id).await?;
     Ok((
         StatusCode::CREATED,
@@ -195,6 +196,16 @@ pub fn normalize_url(url: &str) -> AppResult<String> {
         Err(AppError::bad_request("la dirección debe ser http o https"))
     } else {
         Ok(format!("https://{url}"))
+    }
+}
+
+/// Miniflux responde 500 cuando no puede descargar la web o el feed. No es
+/// un fallo del servicio, sino de la web de fuera: se responde 502.
+fn remote_error(e: AppError) -> AppError {
+    if e.status == StatusCode::INTERNAL_SERVER_ERROR {
+        AppError::bad_gateway(e.message)
+    } else {
+        e
     }
 }
 
