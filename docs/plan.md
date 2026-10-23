@@ -84,9 +84,9 @@ En `android/`. La interfaz sigue `docs/diseño/maquetas.html`. Se prueba en el m
 
 **Reparto:** primero el orquestador añade a `atalaya-api` los tipos de la búsqueda. Después, en paralelo: un subagente para 4.1 y 4.2, en orden, y otro para 4.3.
 
-- [ ] **4.1 Buscar en el servicio.** Traducir la búsqueda al inglés, consultar arXiv (Atom, una petición cada 3 segundos como mucho), traducir títulos [P1–P3] (ADR 0005). Hecho cuando con `curl` una búsqueda en español devuelve papers con títulos en español.
-- [ ] **4.2 Abrir y guardar papers en el servicio.** Resumen traducido y guardado en el feed «Papers guardados» con «Import Entry» [P4, P5]. Hecho cuando un paper guardado aparece en Guardados con su resumen en español.
-- [ ] **4.3 Pantallas de búsqueda en Android.** Pantallas 6 a 8 y búsquedas recientes [P1–P6]. Hecho cuando se busca, se abre y se guarda un paper desde el móvil.
+- [x] **4.1 Buscar en el servicio.** Traducir la búsqueda al inglés, consultar arXiv (Atom, una petición cada 3 segundos como mucho), traducir títulos [P1–P3] (ADR 0005). Hecho cuando con `curl` una búsqueda en español devuelve papers con títulos en español.
+- [x] **4.2 Abrir y guardar papers en el servicio.** Resumen traducido y guardado en el feed «Papers guardados» con «Import Entry» [P4, P5]. Hecho cuando un paper guardado aparece en Guardados con su resumen en español.
+- [x] **4.3 Pantallas de búsqueda en Android.** Pantallas 6 a 8 y búsquedas recientes [P1–P6]. Hecho cuando se busca, se abre y se guarda un paper desde el móvil.
 
 **Fase lista cuando:** se busca «modelos de lenguaje pequeños», se guarda un paper y aparece traducido en Guardados.
 
@@ -136,6 +136,7 @@ Cada paso termina en una propuesta para Rubén, no en código. Si la aprueba, se
 
 Una línea por sesión, la más reciente arriba. Se guardan las 10 últimas.
 
+- 2026-10-23 · fase 4 · hecha · Papers de arXiv: búsqueda traducida y por identificador, apertura y guardado; ocultos al dejar de guardarlos. Probado en el A35. Siguiente: fase 5b.
 - 2026-10-23 · fase 5a · hecha · App de PC con GPUI: lista, lectura traducida, leído y guardado, feeds, carpetas y ajustes. Pruebas en sway sin pantalla. Siguiente: fase 4.
 - 2026-10-23 · fase 3 · hecha · App de Android: lista, lectura, gestos, feeds y sin conexión; compila en ai-lab. Servicio: títulos de feeds nuevos e imagen principal. Siguiente: fase 4.
 - 2026-10-23 · fase 2 · hecha · Servicio desplegado en atalaya.rubensalas.dev: listas, feeds, títulos por webhook y texto completo traducidos; copia SQLite y monitor listos. Siguiente: fases 3 y 5a.

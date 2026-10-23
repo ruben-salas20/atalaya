@@ -29,6 +29,13 @@
 //! | `POST /api/categories` | [`CategoryInput`] | 201 y [`Category`] | 2.5 |
 //! | `PATCH /api/categories/{id}` | [`CategoryInput`] | [`Category`] | 2.5 |
 //! | `DELETE /api/categories/{id}` | | 204 sin cuerpo; 409 si tiene feeds | 2.5 |
+//! | `GET /api/papers/translate` | [`QueryTranslationRequest`] en la URL | [`QueryTranslation`] | 4.1 |
+//! | `GET /api/papers/search` | [`PaperQuery`] en la URL | [`PaperPage`] | 4.1 |
+//! | `GET /api/papers/{arxiv_id}` | | [`Paper`] | 4.2 |
+//! | `POST /api/papers/{arxiv_id}/save` | | 201 y [`EntrySummary`]; 200 si ya estaba | 4.2 |
+//!
+//! Los identificadores antiguos de arXiv llevan una barra (`hep-th/9901001`).
+//! En la ruta va codificada: `hep-th%2F9901001`.
 //!
 //! En Miniflux, una carpeta se llama «categoría». Aquí se usa su nombre.
 //!
@@ -275,6 +282,124 @@ pub struct FeedError {
     pub count: u32,
 }
 
+// ---------------------------------------------------------------------------
+// Papers de arXiv (ADR 0005)
+// ---------------------------------------------------------------------------
+
+/// Parámetros de `GET /api/papers/translate`, en la URL: `?q=modelos+pequeños`.
+///
+/// La app lo pide cuando Rubén deja de escribir unos 0,6 s, para mostrar
+/// «Se buscará en inglés: …» antes de buscar (P1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QueryTranslationRequest {
+    pub q: String,
+}
+
+/// Cómo se buscará en arXiv una búsqueda escrita en español.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QueryTranslation {
+    /// La búsqueda tal como llegó.
+    pub q: String,
+    /// La búsqueda en inglés. Igual que `q` si ya estaba en inglés.
+    pub english: String,
+}
+
+/// Dónde buscar en arXiv (P2). Equivale a los prefijos `all`, `ti`, `au` y
+/// `abs` de su API.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PaperField {
+    #[default]
+    All,
+    Title,
+    Author,
+    Abstract,
+}
+
+/// Cómo ordenar los resultados (P2).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PaperSort {
+    /// Del más nuevo al más viejo, por fecha de envío.
+    #[default]
+    Recent,
+    Relevance,
+}
+
+/// Parámetros de `GET /api/papers/search`, en la URL:
+/// `?q=modelos+pequeños&field=title&sort=relevance&limit=20&offset=0`.
+///
+/// Con `field: Author`, la búsqueda no se traduce: los nombres van tal cual.
+///
+/// Si `q` es solo un identificador de arXiv (`1706.03762`, `arXiv:1706.03762v7`
+/// o el enlace a su página o su PDF), devuelve ese paper o ninguno, y
+/// `english_query` es el identificador. Lo que va entre comillas se busca
+/// como frase exacta, también después de traducirlo.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PaperQuery {
+    /// La búsqueda en español.
+    pub q: String,
+    #[serde(default)]
+    pub field: PaperField,
+    #[serde(default)]
+    pub sort: PaperSort,
+    /// Por defecto 20; como mucho 50.
+    pub limit: Option<u32>,
+    /// Por defecto 0.
+    pub offset: Option<u32>,
+}
+
+/// Una página de resultados (P1, P3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaperPage {
+    /// La búsqueda tal como se envió a arXiv, para «buscado como …».
+    pub english_query: String,
+    /// Cuántos resultados hay en total según arXiv, no solo en la página.
+    pub total: u64,
+    pub papers: Vec<PaperSummary>,
+}
+
+/// Una fila de los resultados (P3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaperSummary {
+    /// Identificador de arXiv sin versión: `2610.08812`.
+    pub arxiv_id: String,
+    /// Título para mostrar: en español si ya está traducido; si no, el original.
+    pub title: String,
+    pub original_title: String,
+    pub title_translated: bool,
+    /// En el orden de arXiv. La app abrevia: «Chen y otros 4».
+    pub authors: Vec<String>,
+    /// Fecha de la primera versión.
+    pub published_at: DateTime<Utc>,
+    /// Categoría principal de arXiv: `cs.CL`.
+    pub category: String,
+    /// El artículo de Miniflux si el paper está en Guardados (el marcador de
+    /// la pantalla 7); `None` si no.
+    pub saved_entry_id: Option<Id>,
+}
+
+/// `GET /api/papers/{arxiv_id}`: un paper abierto desde la búsqueda (P4).
+///
+/// Pedirlo pone en marcha la traducción del resumen si hace falta, y responde
+/// enseguida con `translation: Pending`, como [`Entry`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Paper {
+    #[serde(flatten)]
+    pub summary: PaperSummary,
+    /// Resumen original, en texto plano. Los párrafos van separados por una
+    /// línea en blanco.
+    pub abstract_text: String,
+    pub translation: TranslationState,
+    /// Resumen en español, con los mismos párrafos. Solo con
+    /// `translation: Done`.
+    pub translated_abstract: Option<String>,
+    /// Página del paper: `https://arxiv.org/abs/2610.08812`.
+    pub abs_url: String,
+    /// `https://arxiv.org/pdf/2610.08812`.
+    pub pdf_url: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,6 +430,17 @@ mod tests {
         assert_eq!(json["translation"], "pending");
         assert_eq!(json["published_at"], "1970-01-01T00:00:00Z");
         assert_eq!(serde_json::from_value::<Entry>(json).unwrap(), entry);
+    }
+
+    #[test]
+    fn paper_query_defaults() {
+        let q: PaperQuery = serde_json::from_str(r#"{"q":"modelos"}"#).unwrap();
+        assert_eq!(q.field, PaperField::All);
+        assert_eq!(q.sort, PaperSort::Recent);
+        assert_eq!(
+            serde_json::to_value(PaperField::Abstract).unwrap(),
+            "abstract"
+        );
     }
 
     #[test]

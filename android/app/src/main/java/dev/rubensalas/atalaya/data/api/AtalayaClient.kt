@@ -1,5 +1,6 @@
 package dev.rubensalas.atalaya.data.api
 
+import dev.rubensalas.atalaya.data.papers.PapersApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
@@ -30,7 +31,7 @@ class ApiException(val status: Int?, message: String, cause: Throwable? = null) 
 class AtalayaClient(
     private val config: suspend () -> ServerConfig,
     private val http: OkHttpClient = defaultHttpClient(),
-) {
+) : PapersApi {
     val json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
@@ -70,6 +71,27 @@ class AtalayaClient(
 
     /** Responde 409 si la carpeta aún tiene feeds. */
     suspend fun deleteCategory(id: Id) = sendNoContent("DELETE", "api/categories/$id")
+
+    // El identificador de arXiv va como un solo segmento: `addPathSegment`
+    // codifica la barra de los antiguos (`hep-th%2F9901001`).
+
+    override suspend fun translatePaperQuery(q: String): QueryTranslation =
+        get("api/papers/translate") { addQueryParameter("q", q) }
+
+    override suspend fun searchPapers(query: PaperQuery): PaperPage =
+        get("api/papers/search") {
+            addQueryParameter("q", query.q)
+            addQueryParameter("field", json.encodeToString(PaperField.serializer(), query.field).trim('"'))
+            addQueryParameter("sort", json.encodeToString(PaperSort.serializer(), query.sort).trim('"'))
+            query.limit?.let { addQueryParameter("limit", it.toString()) }
+            query.offset?.let { addQueryParameter("offset", it.toString()) }
+        }
+
+    override suspend fun paper(arxivId: String): Paper = get("api/papers") { addPathSegment(arxivId) }
+
+    /** 201 si lo acaba de guardar y 200 si ya estaba: en los dos casos, el artículo de Miniflux. */
+    override suspend fun savePaper(arxivId: String): EntrySummary =
+        decode(execute("POST", "api/papers", null) { addPathSegment(arxivId).addPathSegment("save") })
 
     // -----------------------------------------------------------------------
 

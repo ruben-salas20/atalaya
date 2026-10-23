@@ -129,7 +129,7 @@ private fun ArticleTopBar(state: ArticleUiState, onBack: () -> Unit, vm: Article
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
                 }
             },
-            title = { if (state.showSelector) VersionSelector(state, onChoose = vm::choose) },
+            title = { if (state.showSelector) VersionSelector(state.showing, state.canSwitch, onChoose = vm::choose) },
             actions = { if (entry != null) ArticleActions(entry, vm) },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = c.bg),
         )
@@ -186,19 +186,19 @@ private fun ArticleActions(entry: Entry, vm: ArticleViewModel) {
     }
 }
 
-/** «Español | Original». Apagado hasta que hay traducción (pantalla 4). */
+/** «Español | Original». Apagado hasta que hay traducción (pantalla 4). También lo usa el paper abierto. */
 @Composable
-private fun VersionSelector(state: ArticleUiState, onChoose: (ArticleVersion) -> Unit) {
+internal fun VersionSelector(showing: ArticleVersion, canSwitch: Boolean, onChoose: (ArticleVersion) -> Unit) {
     val c = Atalaya.colors
     Row(
         Modifier
             .padding(start = 4.dp)
-            .alpha(if (state.canSwitch) 1f else 0.45f)
+            .alpha(if (canSwitch) 1f else 0.45f)
             .background(c.surface, RoundedCornerShape(18.dp))
             .padding(3.dp),
     ) {
         for ((version, label) in listOf(ArticleVersion.Spanish to "Español", ArticleVersion.Original to "Original")) {
-            val on = state.showing == version
+            val on = showing == version
             Text(
                 label,
                 fontSize = 13.5.sp,
@@ -207,7 +207,7 @@ private fun VersionSelector(state: ArticleUiState, onChoose: (ArticleVersion) ->
                 modifier = Modifier
                     .background(if (on) c.accent else c.surface, RoundedCornerShape(15.dp))
                     .semantics { selected = on }
-                    .clickable(enabled = state.canSwitch, role = Role.Tab) { onChoose(version) }
+                    .clickable(enabled = canSwitch, role = Role.Tab) { onChoose(version) }
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             )
         }
@@ -271,6 +271,12 @@ private fun Note(entry: Entry, state: ArticleUiState) {
         entry.translation == TranslationState.Failed -> "No se pudo traducir"
         else -> return
     }
+    TranslationNote(text)
+}
+
+/** La etiqueta con el icono de traducir: «Traducido», «No se pudo traducir». */
+@Composable
+internal fun TranslationNote(text: String) {
     val c = Atalaya.colors
     Row(
         Modifier
@@ -286,7 +292,7 @@ private fun Note(entry: Entry, state: ArticleUiState) {
 }
 
 @Composable
-private fun TranslatingToast(modifier: Modifier = Modifier) {
+internal fun TranslatingToast(modifier: Modifier = Modifier) {
     val c = Atalaya.colors
     Row(
         modifier

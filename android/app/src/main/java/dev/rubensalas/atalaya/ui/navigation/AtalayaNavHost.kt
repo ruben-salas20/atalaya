@@ -17,6 +17,8 @@ import dev.rubensalas.atalaya.ui.feeds.AddFeedScreen
 import dev.rubensalas.atalaya.ui.feeds.EditFeedScreen
 import dev.rubensalas.atalaya.ui.feeds.FeedsScreen
 import dev.rubensalas.atalaya.ui.list.ListScreen
+import dev.rubensalas.atalaya.ui.papers.PaperScreen
+import dev.rubensalas.atalaya.ui.papers.PaperSearchScreen
 import dev.rubensalas.atalaya.ui.settings.SettingsScreen
 import kotlinx.serialization.Serializable
 
@@ -29,6 +31,8 @@ import kotlinx.serialization.Serializable
 @Serializable object FeedsRoute
 @Serializable object AddFeedRoute
 @Serializable data class EditFeedRoute(val id: Id)
+@Serializable object PaperSearchRoute
+@Serializable data class PaperRoute(val arxivId: String)
 
 @Composable
 fun AtalayaNavHost(container: AppContainer) {
@@ -47,7 +51,18 @@ fun AtalayaNavHost(container: AppContainer) {
                 onOpenArticle = { nav.navigate(ArticleRoute(it)) },
                 onOpenSettings = { nav.navigate(SettingsRoute) },
                 onOpenFeeds = { nav.navigate(FeedsRoute) },
+                onOpenPapers = { nav.navigate(PaperSearchRoute) },
             )
+        }
+        composable<PaperSearchRoute> {
+            PaperSearchScreen(
+                container = container,
+                onBack = { nav.popBackStack() },
+                onOpenPaper = { nav.navigate(PaperRoute(it)) },
+            )
+        }
+        composable<PaperRoute> {
+            PaperScreen(container = container, arxivId = it.toRoute<PaperRoute>().arxivId, onBack = { nav.popBackStack() })
         }
         composable<ArticleRoute> {
             ArticleScreen(container = container, id = it.toRoute<ArticleRoute>().id, onBack = { nav.popBackStack() })

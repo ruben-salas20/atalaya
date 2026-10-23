@@ -22,6 +22,7 @@ use crate::{
     AppState,
     error::{AppError, AppResult},
     miniflux::Miniflux,
+    papers::saved::PapersPlace,
     translations::TitleInfo,
 };
 
@@ -39,7 +40,8 @@ async fn list(
     query: Result<Query<EntryQuery>, QueryRejection>,
 ) -> AppResult<Json<EntryPage>> {
     let Query(query) = query.map_err(|e| invalid("parámetros no válidos", e.body_text()))?;
-    let page = state.miniflux.entries(&query).await?;
+    let place = state.papers.place().await;
+    let page = state.miniflux.entries(&query, place).await?;
     let ids: Vec<Id> = page.entries.iter().map(|e| e.id).collect();
     let titles = state.translations.titles(&ids).await;
     Ok(Json(EntryPage {
@@ -96,6 +98,16 @@ async fn update(
         // Miniflux solo sabe alternar: se llama solo si hay que cambiarlo.
         state.miniflux.toggle_starred(id).await?;
         entry.starred = starred;
+        // Un paper que deja de estar guardado se oculta (ver
+        // `entries_request`); leído, tampoco suma en los contadores.
+        if !starred
+            && change.read.is_none()
+            && entry.status != "read"
+            && state.papers.saved_feed(false).await.ok().flatten() == Some(entry.feed_id)
+        {
+            state.miniflux.set_read(id, true).await?;
+            entry.status = "read".into();
+        }
     }
     if change.starred == Some(true) {
         // Guardar pone en marcha la traducción del texto completo (T2).
@@ -111,7 +123,7 @@ async fn title_of(state: &AppState, id: Id) -> Option<TitleInfo> {
 }
 
 /// Une un artículo de Miniflux con lo que se sabe de su título.
-fn summary(entry: &MinifluxEntry, title: Option<&TitleInfo>) -> EntrySummary {
+pub(crate) fn summary(entry: &MinifluxEntry, title: Option<&TitleInfo>) -> EntrySummary {
     let translated = title
         .and_then(|t| t.title.as_deref())
         .filter(|t| !t.trim().is_empty());
@@ -133,7 +145,16 @@ fn summary(entry: &MinifluxEntry, title: Option<&TitleInfo>) -> EntrySummary {
 }
 
 /// Ruta de Miniflux y parámetros para una vista de la lista.
-fn entries_request(query: &EntryQuery) -> (String, Vec<(&'static str, String)>) {
+/// La petición a Miniflux para una vista.
+///
+/// Los papers solo se ven mientras están guardados: en su feed y en su carpeta
+/// se piden solo los guardados, y en «Todos» y «Sin leer» no salen, porque su
+/// feed está oculto en las listas generales. Miniflux no deja borrar un
+/// artículo suelto, así que los que se dejan de guardar se quedan ocultos.
+fn entries_request(
+    query: &EntryQuery,
+    papers: Option<PapersPlace>,
+) -> (String, Vec<(&'static str, String)>) {
     let path = match (query.feed_id, query.category_id) {
         (Some(feed), _) => format!("/v1/feeds/{feed}/entries"),
         (None, Some(category)) => format!("/v1/categories/{category}/entries"),
@@ -157,6 +178,18 @@ fn entries_request(query: &EntryQuery) -> (String, Vec<(&'static str, String)>) 
             params.push(("starred", "true".into()));
             params.push(("status", "unread".into()));
             params.push(("status", "read".into()));
+        }
+    }
+    if query.view != View::Starred {
+        let in_papers = papers.is_some_and(|p| match (query.feed_id, query.category_id) {
+            (Some(feed), _) => feed == p.feed,
+            (None, Some(category)) => category == p.category,
+            (None, None) => false,
+        });
+        if in_papers {
+            params.push(("starred", "true".into()));
+        } else if query.feed_id.is_none() && query.category_id.is_none() {
+            params.push(("globally_visible", "true".into()));
         }
     }
     (path, params)
@@ -191,8 +224,12 @@ pub(crate) struct MinifluxEntryFeed {
 }
 
 impl Miniflux {
-    pub(crate) async fn entries(&self, query: &EntryQuery) -> AppResult<MinifluxEntryPage> {
-        let (path, params) = entries_request(query);
+    pub(crate) async fn entries(
+        &self,
+        query: &EntryQuery,
+        papers: Option<PapersPlace>,
+    ) -> AppResult<MinifluxEntryPage> {
+        let (path, params) = entries_request(query, papers);
         Self::send(self.request(Method::GET, &path).query(&params)).await
     }
 
@@ -217,13 +254,13 @@ impl Miniflux {
     }
 
     /// Total de una vista, sin traer sus artículos.
-    pub(crate) async fn count(&self, view: View) -> AppResult<u64> {
+    pub(crate) async fn count(&self, view: View, papers: Option<PapersPlace>) -> AppResult<u64> {
         let query = EntryQuery {
             view,
             limit: Some(1),
             ..Default::default()
         };
-        Ok(self.entries(&query).await?.total)
+        Ok(self.entries(&query, papers).await?.total)
     }
 }
 
@@ -320,7 +357,7 @@ mod tests {
 
     #[test]
     fn all_view_excludes_removed() {
-        let (path, params) = entries_request(&EntryQuery::default());
+        let (path, params) = entries_request(&EntryQuery::default(), None);
         let p = params_map(&params);
         assert_eq!(path, "/v1/entries");
         assert_eq!(p["status"], ["unread", "read"]);
@@ -329,6 +366,38 @@ mod tests {
         assert_eq!(p["order"], ["published_at"]);
         assert_eq!(p["direction"], ["desc"]);
         assert!(!p.contains_key("starred"));
+        assert_eq!(p["globally_visible"], ["true"]);
+    }
+
+    #[test]
+    fn papers_show_only_while_saved() {
+        let papers = Some(PapersPlace {
+            feed: 16,
+            category: 9,
+        });
+        let request = |view, feed_id, category_id| {
+            let query = EntryQuery {
+                view,
+                feed_id,
+                category_id,
+                ..Default::default()
+            };
+            params_map(&entries_request(&query, papers).1)
+        };
+        // Su feed y su carpeta: solo los guardados.
+        assert_eq!(request(View::All, Some(16), None)["starred"], ["true"]);
+        assert_eq!(request(View::Unread, None, Some(9))["starred"], ["true"]);
+        // Otro feed u otra carpeta: como siempre.
+        assert!(!request(View::All, Some(3), None).contains_key("starred"));
+        assert!(!request(View::All, None, Some(2)).contains_key("starred"));
+        assert!(!request(View::All, None, Some(2)).contains_key("globally_visible"));
+        // «Todos» y «Sin leer» sin el feed oculto; Guardados, con todo.
+        let unread = request(View::Unread, None, None);
+        assert_eq!(unread["globally_visible"], ["true"]);
+        assert!(!unread.contains_key("starred"));
+        let starred = request(View::Starred, None, None);
+        assert!(!starred.contains_key("globally_visible"));
+        assert_eq!(starred["starred"], ["true"]);
     }
 
     #[test]
@@ -340,7 +409,7 @@ mod tests {
             offset: Some(100),
             ..Default::default()
         };
-        let (path, params) = entries_request(&query);
+        let (path, params) = entries_request(&query, None);
         let p = params_map(&params);
         assert_eq!(path, "/v1/categories/3/entries");
         assert_eq!(p["status"], ["unread"]);
@@ -357,7 +426,7 @@ mod tests {
             limit: Some(0),
             ..Default::default()
         };
-        let (path, params) = entries_request(&query);
+        let (path, params) = entries_request(&query, None);
         let p = params_map(&params);
         assert_eq!(path, "/v1/feeds/1/entries");
         assert_eq!(p["starred"], ["true"]);
