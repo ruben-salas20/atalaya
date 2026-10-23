@@ -10,6 +10,7 @@
 #   scripts/headless.sh key Return                  pulsa una tecla (nombres de xkb)
 #   scripts/headless.sh shot salida.png             captura la pantalla entera
 #   scripts/headless.sh log                         muestra el log de la app
+#   scripts/headless.sh opened                      enlaces que la app intentó abrir
 #   scripts/headless.sh stop                        cierra todo y borra la sesión
 set -euo pipefail
 
@@ -49,7 +50,11 @@ case "$cmd" in
     echo $! > "$dir/mouse.pid"
     setsid sleep infinity > "$dir/mouse" &
     echo $! > "$dir/hold.pid"
-    setsid "$@" > "$dir/app.log" 2>&1 < /dev/null &
+    # Un xdg-open falso: si no, «abrir en el navegador» abre el de la pantalla real.
+    mkdir -p "$dir/bin"
+    printf '#!/bin/sh\necho "$*" >> %s/opened.log\n' "$dir" > "$dir/bin/xdg-open"
+    chmod +x "$dir/bin/xdg-open"
+    PATH="$dir/bin:$PATH" setsid "$@" > "$dir/app.log" 2>&1 < /dev/null &
     echo $! > "$dir/app.pid"
     echo "sesión «$name» en marcha (WAYLAND_DISPLAY=$WAYLAND_DISPLAY)"
     ;;
@@ -75,6 +80,9 @@ case "$cmd" in
   log)
     cat "$dir/app.log"
     ;;
+  opened)
+    cat "$dir/opened.log" 2>/dev/null || true
+    ;;
   stop)
     [ -d "$dir" ] || die "no hay sesión «$name»"
     for p in app hold mouse sway; do
@@ -85,7 +93,7 @@ case "$cmd" in
     rm -rf "$dir"
     ;;
   *)
-    sed -n '2,15p' "$0"
+    sed -n '2,16p' "$0"
     exit 1
     ;;
 esac
