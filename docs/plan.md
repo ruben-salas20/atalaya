@@ -9,7 +9,7 @@ Los códigos entre corchetes, como [L4], son requisitos de `docs/PRD.md`.
 | Fase | Qué se consigue |
 |---|---|
 | 0. Preparación | Monorepo creado y Miniflux funcionando en `ai-lab` |
-| 1. Modelo de traducción | Un modelo elegido con medidas reales, servido por llama-swap |
+| 1. Modelo de traducción | Gemma 4 E4B medido y validado como traductor, servido por llama-swap |
 | 2. Servicio | API que entrega artículos traducidos y gestiona feeds |
 | 3. App de Android | Leer en el móvil todo lo anterior |
 | 4. Papers | Buscar en arXiv en español y guardar papers |
@@ -34,13 +34,13 @@ Los códigos entre corchetes, como [L4], son requisitos de `docs/PRD.md`.
 
 Los textos y scripts de medida van en `bench/traduccion/`; los resultados, en `docs/traduccion.md`. Las medidas se hacen con la skill `/receta-modelo`.
 
-**Reparto:** 1.1 un subagente. Después, 1.2 a 1.5 el orquestador, en orden: con 6 GB, medir dos modelos a la vez falsea los tiempos.
+**Reparto:** 1.1 un subagente. Después, 1.2 y 1.3 el orquestador, en orden, porque usan la GPU.
+
+Se mide solo Gemma 4 E4B, en su versión `gemma-4-e4b-rapido` (sin razonamiento previo y con MTP). Si su calidad no basta, se añaden pasos para probar otro modelo; el siguiente candidato es Hunyuan-MT 7B en Q4_K_M.
 
 - [ ] **1.1 Preparar el conjunto de prueba.** 20 textos reales en inglés: 10 noticias y 10 resúmenes de arXiv, más 20 títulos sueltos. Un script que manda cada texto a un modelo de llama-swap y apunta tiempos. Hecho cuando el script corre de principio a fin contra un modelo cualquiera.
-- [ ] **1.2 Medir Gemma 4 E4B.** Ya está instalado en llama-swap. Medir memoria de GPU, tiempo de carga, segundos por título y por artículo. Hecho cuando sus medidas y sus 40 traducciones están en `docs/traduccion.md`.
-- [ ] **1.3 Medir Hunyuan-MT 7B.** Comprimido para que quepa en 6 GB. Mismas medidas. Hecho cuando sus resultados están junto a los de Gemma.
-- [ ] **1.4 Medir NLLB-200.** No es de llama.cpp: llama-swap lo arranca como programa aparte, como hace con `qwen3-tts` (ADR 0004). Mismas medidas. Hecho cuando sus resultados están junto a los otros dos.
-- [ ] **1.5 Elegir.** Rubén valora la calidad leyendo las traducciones; el agente presenta la tabla de medidas. El elegido queda en `llama-swap/config.yaml` con su `ttl`. Hecho cuando hay un ADR con la elección y el modelo responde por llama-swap.
+- [ ] **1.2 Medir Gemma 4 E4B.** Ya está instalado en llama-swap como `gemma-4-e4b-rapido`. Medir memoria de GPU, tiempo de carga, segundos por título y por artículo. Hecho cuando sus medidas y sus 40 traducciones están en `docs/traduccion.md`.
+- [ ] **1.3 Decidir.** Rubén valora la calidad leyendo las traducciones; el agente presenta la tabla de medidas. Si la calidad basta, Gemma queda como modelo de traducción, con su `ttl` en `llama-swap/config.yaml`. Si no, se añaden al plan los pasos para medir otro modelo. Hecho cuando hay un ADR con la elección y el modelo responde por llama-swap, o cuando el plan tiene los pasos del siguiente candidato.
 
 **Fase lista cuando:** un modelo elegido traduce por llama-swap y sus medidas están documentadas.
 
