@@ -70,4 +70,4 @@ La torre de Rubén, con GPU RTX 3050 de 6 GB. Se entra con `ssh ai-lab`.
 ## Portátil y móvil
 
 - **Móvil:** Samsung A35 (SM-A356E) con Android 16, conectado por USB. Instala y prueba con `adb`; para ver la pantalla, `adb exec-out screencap -p > captura.png` y lee la imagen.
-- **Ver HTML local:** el navegador de Playwright (Obscura) bloquea `file://` y `127.0.0.1`. Para comprobar un SVG, conviértelo con `rsvg-convert` y lee la imagen.
+- **Ver HTML local:** el MCP de Playwright bloquea `file://`. Sirve la carpeta con `python3 -m http.server --bind 127.0.0.1` y ábrela por `http://127.0.0.1`. Las capturas de la página entera fallan por tiempo: captura un elemento. Obscura, su navegador, dibuja mal las capas superpuestas: usa las capturas para la estructura, no para juzgar el aspecto. Para un SVG, `rsvg-convert` y lee la imagen.
