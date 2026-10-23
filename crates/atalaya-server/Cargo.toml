@@ -19,7 +19,8 @@ serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.11"
 subtle = "2.6.1"
-tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "signal"] }
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+quick-xml = "0.42"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 whatlang = "0.18.0"

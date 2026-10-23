@@ -9,6 +9,9 @@
 //!   `content`, `original` guarda el artículo completo pedido a Miniflux
 //!   cuando el feed solo trae un resumen (L7).
 //!
+//! Los papers de arXiv (fase 4) tienen sus propias tablas, porque no son
+//! artículos de Miniflux hasta que se guardan: ver [`crate::papers`].
+//!
 //! La conexión es una sola, tras un `Mutex`. Las consultas son cortas; para
 //! no bloquear el runtime de Tokio, se llaman con [`Store::call`].
 
@@ -26,7 +29,7 @@ use crate::translations::TitleInfo;
 
 /// Versión del esquema, en `PRAGMA user_version`. Cada cambio de tablas
 /// añade un paso a [`migrate`] y sube este número.
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 /// Campo traducido de un artículo.
 pub const FIELD_TITLE: &str = "title";
@@ -131,6 +134,41 @@ fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
         let tx = conn.transaction()?;
         tx.execute_batch(
             "ALTER TABLE translations ADD COLUMN original TEXT;  -- artículo completo pedido a Miniflux (L7)",
+        )?;
+        tx.pragma_update(None, "user_version", 2)?;
+        tx.commit()?;
+    }
+    if version < 3 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "CREATE TABLE papers (
+                arxiv_id      TEXT PRIMARY KEY,     -- sin versión: '2610.08812'
+                title         TEXT NOT NULL,
+                abstract_text TEXT NOT NULL,
+                authors       TEXT NOT NULL,        -- JSON: lista de nombres
+                published_at  TEXT NOT NULL,        -- RFC 3339
+                category      TEXT NOT NULL,
+                updated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+            );
+
+            CREATE TABLE paper_translations (
+                arxiv_id    TEXT NOT NULL,
+                field       TEXT NOT NULL,          -- 'title' o 'abstract'
+                state       TEXT NOT NULL,          -- 'done', 'failed' o 'pending'
+                source_hash TEXT NOT NULL,
+                text        TEXT,
+                model       TEXT,
+                error       TEXT,
+                updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                PRIMARY KEY (arxiv_id, field)
+            );
+
+            CREATE TABLE query_translations (
+                query      TEXT PRIMARY KEY,        -- en minúsculas y con los espacios normalizados
+                english    TEXT NOT NULL,
+                model      TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+            );",
         )?;
         tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         tx.commit()?;
