@@ -22,13 +22,13 @@
 //! | `PATCH /api/entries/{id}` | [`EntryUpdate`] | [`EntrySummary`] | 2.2 |
 //! | `POST /api/feeds/discover` | [`DiscoverRequest`] | `Vec<`[`DiscoveredFeed`]`>` | 2.5 |
 //! | `GET /api/feeds` | | `Vec<`[`Feed`]`>` | 2.5 |
-//! | `POST /api/feeds` | [`NewFeed`] | [`Feed`] | 2.5 |
+//! | `POST /api/feeds` | [`NewFeed`] | 201 y [`Feed`] | 2.5 |
 //! | `PATCH /api/feeds/{id}` | [`FeedUpdate`] | [`Feed`] | 2.5 |
 //! | `DELETE /api/feeds/{id}` | | 204 sin cuerpo | 2.5 |
 //! | `GET /api/categories` | | `Vec<`[`Category`]`>` | 2.5 |
-//! | `POST /api/categories` | [`CategoryInput`] | [`Category`] | 2.5 |
+//! | `POST /api/categories` | [`CategoryInput`] | 201 y [`Category`] | 2.5 |
 //! | `PATCH /api/categories/{id}` | [`CategoryInput`] | [`Category`] | 2.5 |
-//! | `DELETE /api/categories/{id}` | | 204 sin cuerpo | 2.5 |
+//! | `DELETE /api/categories/{id}` | | 204 sin cuerpo; 409 si tiene feeds | 2.5 |
 //!
 //! En Miniflux, una carpeta se llama «categoría». Aquí se usa su nombre.
 //!
