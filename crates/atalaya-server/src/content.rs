@@ -123,7 +123,7 @@ const ENGLISH: &[&str] = &[
 pub struct InProgress(Mutex<HashSet<Id>>);
 
 /// Saca el artículo de [`InProgress`] al terminar, también si el trabajo falla.
-struct InProgressGuard {
+pub(crate) struct InProgressGuard {
     translations: Translations,
     entry_id: Id,
 }
@@ -234,6 +234,16 @@ impl Translations {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         set.insert(entry_id)
+    }
+
+    /// Da el texto del artículo por «en curso» hasta soltar lo que devuelve,
+    /// para que abrirlo no empiece otra traducción. `None` si ya lo estaba.
+    /// Lo usa un paper guardado mientras se traduce su resumen (paso 4.2).
+    pub(crate) fn hold_in_progress(&self, entry_id: Id) -> Option<InProgressGuard> {
+        self.mark_in_progress(entry_id).then(|| InProgressGuard {
+            translations: self.clone(),
+            entry_id,
+        })
     }
 
     /// Si el artículo está en un idioma que se traduce (T1, T3). Si aún no se

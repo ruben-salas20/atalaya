@@ -8,6 +8,7 @@ pub mod feeds;
 pub mod lang;
 pub mod llama;
 pub mod miniflux;
+pub mod papers;
 pub mod sidebar;
 pub mod store;
 pub mod titles;
@@ -18,7 +19,8 @@ use atalaya_api::{Health, Status};
 use axum::{Json, Router, extract::State, middleware, routing::get};
 
 use crate::{
-    config::Config, llama::Llama, miniflux::Miniflux, store::Store, translations::Translations,
+    config::Config, llama::Llama, miniflux::Miniflux, papers::Papers, store::Store,
+    translations::Translations,
 };
 
 /// Lo que comparten todos los handlers.
@@ -28,6 +30,7 @@ pub struct AppState {
     pub http: reqwest::Client,
     pub miniflux: Miniflux,
     pub translations: Translations,
+    pub papers: Papers,
 }
 
 impl AppState {
@@ -40,11 +43,13 @@ impl AppState {
         let store = Store::open(&config.data_dir).unwrap_or_else(|e| panic!("{e}"));
         let llama = Llama::new(http.clone(), &config.llama_url, &config.llama_model);
         let translations = Translations::new(store, llama, miniflux.clone());
+        let papers = Papers::new(http.clone(), translations.clone());
         Self {
             config,
             http,
             miniflux,
             translations,
+            papers,
         }
     }
 }
@@ -57,6 +62,7 @@ pub fn app(state: AppState) -> Router {
         .merge(sidebar::routes())
         .merge(entries::routes())
         .merge(feeds::routes())
+        .merge(papers::routes())
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_api_key,

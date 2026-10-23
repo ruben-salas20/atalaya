@@ -52,3 +52,23 @@ async fn api_accepts_right_key() {
         .unwrap();
     assert_eq!(status(req).await, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn paper_routes_need_the_key() {
+    for uri in [
+        "/api/papers/translate?q=modelos",
+        "/api/papers/search?q=modelos",
+    ] {
+        let req = Request::get(uri).body(Body::empty()).unwrap();
+        assert_eq!(status(req).await, StatusCode::UNAUTHORIZED, "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn empty_paper_search_is_a_bad_request() {
+    let req = Request::get("/api/papers/search?q=%20")
+        .header(header::AUTHORIZATION, "Bearer secreta")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(status(req).await, StatusCode::BAD_REQUEST);
+}

@@ -461,6 +461,7 @@ dependencies = [
  "hex",
  "hmac 0.13.0",
  "isolang",
+ "quick-xml 0.42.0",
  "reqwest",
  "rusqlite",
  "serde",
