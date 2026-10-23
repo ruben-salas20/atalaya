@@ -69,10 +69,10 @@ En `android/`. La interfaz sigue `docs/diseño/maquetas.html`. Se prueba en el m
 
 **Reparto:** 3.1 el orquestador, porque instala herramientas con `sudo` y usa el móvil. Después, [3.2, 3.4] en paralelo; luego 3.3 y luego 3.5, que tocan lo mismo que 3.2. 3.6, el orquestador con Rubén. Toda prueba en el móvil la hace el orquestador tras fusionar.
 
-- [ ] **3.1 Proyecto y ajustes.** Herramientas de Android en el portátil, proyecto Kotlin con Compose, tema neutro claro y oscuro, icono adaptable de `assets/icono/` y pantalla de ajustes con «Probar» [S3]. Hecho cuando la app instalada en el móvil dice «Conectado» al servicio.
-- [ ] **3.2 Lista y menú lateral.** [L1–L3, S2]. Hecho cuando la lista y el menú del móvil se parecen a las pantallas 1 y 2 de las maquetas, con datos reales.
-- [ ] **3.3 Lectura y gestos.** Selector «Original», aviso «Traduciendo…» y gestos [L4–L6]. Hecho cuando se lee un artículo traducido y los gestos cambian su estado en Miniflux.
-- [ ] **3.4 Feeds.** Pantallas 9 a 11 [F1–F6]. Hecho cuando se añade un feed desde el móvil y sus artículos llegan.
+- [x] **3.1 Proyecto y ajustes.** Herramientas de Android en el portátil, proyecto Kotlin con Compose, tema neutro claro y oscuro, icono adaptable de `assets/icono/` y pantalla de ajustes con «Probar» [S3]. Hecho cuando la app instalada en el móvil dice «Conectado» al servicio.
+- [x] **3.2 Lista y menú lateral.** [L1–L3, S2]. Hecho cuando la lista y el menú del móvil se parecen a las pantallas 1 y 2 de las maquetas, con datos reales.
+- [x] **3.3 Lectura y gestos.** Selector «Original», aviso «Traduciendo…» y gestos [L4–L6]. Hecho cuando se lee un artículo traducido y los gestos cambian su estado en Miniflux.
+- [x] **3.4 Feeds.** Pantallas 9 a 11 [F1–F6]. Hecho cuando se añade un feed desde el móvil y sus artículos llegan.
 - [ ] **3.5 Sin conexión y en segundo plano.** Room para guardar lo descargado y WorkManager para sincronizar [L8, S4]. Hecho cuando, en modo avión, se leen los artículos ya sincronizados.
 - [ ] **3.6 Uso real.** Rubén la usa un día. Se arreglan los fallos que encuentre. Hecho cuando Rubén confirma que la usa en lugar de su lector anterior.
 
