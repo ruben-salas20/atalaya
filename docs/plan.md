@@ -123,4 +123,5 @@ Cada paso termina en una propuesta para Rubén, no en código. Si la aprueba, se
 
 Una línea por sesión, la más reciente arriba. Se guardan las 10 últimas.
 
+- 2026-10-23 · fase 0 · hecha · Miniflux 2.3.4 en rss.rubensalas.dev, con clave de API y el feed de Paul Graham completo. Siguiente: fase 1, paso 1.1.
 - 2026-10-23 · fase 0 · a medias · Hecho 0.1: diseño, PRD, ADR 0001–0008, plan y flujo con orquestador. Siguiente: 0.2, instalar Miniflux.
