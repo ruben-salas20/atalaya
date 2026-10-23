@@ -1,6 +1,8 @@
 # Plan de Atalaya
 
-El plan va en fases, y cada fase en pasos. **Cada paso es una sesión**: cabe en una sesión de trabajo y termina en algo que se comprueba. El paso en curso es la primera casilla sin marcar. Cómo se trabaja cada sesión está en `AGENTS.md`.
+El plan va en fases, y cada fase en pasos. **Cada fase es una sesión**: un orquestador en la rama `fase-N` reparte los pasos entre subagentes y termina con un PR a `main`. Cada paso termina en algo que se comprueba. La fase en curso es la primera con casillas sin marcar. Cómo se trabaja está en `AGENTS.md`.
+
+La línea **Reparto** de cada fase dice qué pasos hace el orquestador y cuáles pueden ir en paralelo. Los pasos entre corchetes del mismo grupo van a la vez; los grupos, uno detrás de otro.
 
 Los códigos entre corchetes, como [L4], son requisitos de `docs/PRD.md`.
 
@@ -18,6 +20,8 @@ Los códigos entre corchetes, como [L4], son requisitos de `docs/PRD.md`.
 
 ## Fase 0. Preparación
 
+**Reparto:** todo el orquestador, porque todo es `ai-lab`. Sin subagentes.
+
 - [x] **0.1 Crear el monorepo.** Repositorio git, `AGENTS.md`, `CLAUDE.md`, `docs/` y `assets/`. Hecho cuando hay un primer commit con la documentación.
 - [ ] **0.2 Instalar Miniflux en `ai-lab`.** Miniflux y PostgreSQL en `~/servicios/docker-compose.yml`, con versión fija; Miniflux 2.2.16 o posterior (ADR 0005). Dominio `rss.rubensalas.dev` en el `Caddyfile` y en el DNS, solo para Tailscale (ADR 0008). Monitor en Uptime Kuma. Puertos, DNS y convenciones: los de `~/docs/ai-lab/ai-lab-stack.md`, que también se actualiza. Hecho cuando `https://rss.rubensalas.dev` abre desde el portátil y el móvil, y los demás servicios de `docker compose ps` siguen en marcha.
 - [ ] **0.3 Configurar Miniflux.** Crear el usuario y una clave de API, guardada en `~/servicios/.env`. Añadir el feed que Rubén ya sigue (pregúntale cuál) y activar en él la descarga del artículo completo si solo trae resumen. Hecho cuando `curl` con `X-Auth-Token` devuelve artículos de ese feed.
@@ -29,6 +33,8 @@ Los códigos entre corchetes, como [L4], son requisitos de `docs/PRD.md`.
 ## Fase 1. Elegir el modelo de traducción
 
 Los textos y scripts de medida van en `bench/traduccion/`; los resultados, en `docs/traduccion.md`. Las medidas se hacen con la skill `/receta-modelo`.
+
+**Reparto:** 1.1 un subagente. Después, 1.2 a 1.5 el orquestador, en orden: con 6 GB, medir dos modelos a la vez falsea los tiempos.
 
 - [ ] **1.1 Preparar el conjunto de prueba.** 20 textos reales en inglés: 10 noticias y 10 resúmenes de arXiv, más 20 títulos sueltos. Un script que manda cada texto a un modelo de llama-swap y apunta tiempos. Hecho cuando el script corre de principio a fin contra un modelo cualquiera.
 - [ ] **1.2 Medir Gemma 4 E4B.** Ya está instalado en llama-swap. Medir memoria de GPU, tiempo de carga, segundos por título y por artículo. Hecho cuando sus medidas y sus 40 traducciones están en `docs/traduccion.md`.
@@ -44,7 +50,9 @@ Los textos y scripts de medida van en `bench/traduccion/`; los resultados, en `d
 
 Crate `crates/atalaya-server`, con los tipos compartidos en `crates/atalaya-api` (ADR 0006).
 
-- [ ] **2.1 Esqueleto y despliegue.** Workspace de Cargo, los dos crates, un endpoint de salud, Dockerfile, entrada en `docker-compose.yml`, dominio `atalaya.rubensalas.dev` y monitor en Uptime Kuma. Hecho cuando `https://atalaya.rubensalas.dev/health` responde desde el móvil.
+**Reparto:** 2.1 el orquestador, porque despliega en `ai-lab`. Después, [2.2, 2.3, 2.5] en paralelo, y luego 2.4, que usa la traducción de 2.3. El orquestador despliega lo fusionado y hace las pruebas con `curl`.
+
+- [ ] **2.1 Esqueleto y despliegue.** Workspace de Cargo, los dos crates, un endpoint de salud, Dockerfile, entrada en `docker-compose.yml`, dominio `atalaya.rubensalas.dev` y monitor en Uptime Kuma. Además, los tipos de la API de toda la fase en `atalaya-api`, para que los pasos en paralelo partan del mismo contrato. Hecho cuando `https://atalaya.rubensalas.dev/health` responde desde el móvil.
 - [ ] **2.2 Listas desde Miniflux.** Listas, marcar leído y guardar, reenviados a Miniflux [L1, S1]. Todo protegido con una clave. Hecho cuando con `curl` se lista, se marca y el cambio se ve en la web de Miniflux.
 - [ ] **2.3 Traducir títulos.** Webhook de Miniflux para lo nuevo, detección de idioma, traducción de títulos por llama-swap y base SQLite de traducciones [T1–T4]. Hecho cuando un artículo nuevo aparece en la lista con el título en español en menos de un minuto.
 - [ ] **2.4 Traducir el texto completo.** Al abrir o guardar, por párrafos, conservando el HTML [T2, T5]. Si solo hay resumen, pedir antes el original a Miniflux [L7]. Mientras traduce, la API lo indica [L6]. Hecho cuando abrir un artículo en inglés devuelve el texto en español con sus enlaces intactos.
@@ -57,6 +65,8 @@ Crate `crates/atalaya-server`, con los tipos compartidos en `crates/atalaya-api`
 ## Fase 3. App de Android
 
 En `android/`. La interfaz sigue `docs/diseño/maquetas.html`. Se prueba en el móvil por `adb`.
+
+**Reparto:** 3.1 el orquestador, porque instala herramientas con `sudo` y usa el móvil. Después, [3.2, 3.4] en paralelo; luego 3.3 y luego 3.5, que tocan lo mismo que 3.2. 3.6, el orquestador con Rubén. Toda prueba en el móvil la hace el orquestador tras fusionar.
 
 - [ ] **3.1 Proyecto y ajustes.** Herramientas de Android en el portátil, proyecto Kotlin con Compose, tema neutro claro y oscuro, icono adaptable de `assets/icono/` y pantalla de ajustes con «Probar» [S3]. Hecho cuando la app instalada en el móvil dice «Conectado» al servicio.
 - [ ] **3.2 Lista y menú lateral.** [L1–L3, S2]. Hecho cuando la lista y el menú del móvil se parecen a las pantallas 1 y 2 de las maquetas, con datos reales.
@@ -71,6 +81,8 @@ En `android/`. La interfaz sigue `docs/diseño/maquetas.html`. Se prueba en el m
 
 ## Fase 4. Papers
 
+**Reparto:** primero el orquestador añade a `atalaya-api` los tipos de la búsqueda. Después, en paralelo: un subagente para 4.1 y 4.2, en orden, y otro para 4.3.
+
 - [ ] **4.1 Buscar en el servicio.** Traducir la búsqueda al inglés, consultar arXiv (Atom, una petición cada 3 segundos como mucho), traducir títulos [P1–P3] (ADR 0005). Hecho cuando con `curl` una búsqueda en español devuelve papers con títulos en español.
 - [ ] **4.2 Abrir y guardar papers en el servicio.** Resumen traducido y guardado en el feed «Papers guardados» con «Import Entry» [P4, P5]. Hecho cuando un paper guardado aparece en Guardados con su resumen en español.
 - [ ] **4.3 Pantallas de búsqueda en Android.** Pantallas 6 a 8 y búsquedas recientes [P1–P6]. Hecho cuando se busca, se abre y se guarda un paper desde el móvil.
@@ -82,6 +94,8 @@ En `android/`. La interfaz sigue `docs/diseño/maquetas.html`. Se prueba en el m
 ## Fase 5. App de PC
 
 En `crates/atalaya-desktop`. La interfaz sigue `docs/diseño/maquetas-pc.html`.
+
+**Reparto:** 5.1 un subagente. Después, [5.2, 5.3, 5.4] en paralelo. 5.5 el orquestador, porque instala fuera del repo.
 
 - [ ] **5.1 Esqueleto con GPUI.** Versión de GPUI y `gpui-component` fijadas, ventana de tres columnas con la lista real. Hecho cuando la ventana muestra los artículos del servicio.
 - [ ] **5.2 Lectura.** Selector «Original», «Traduciendo…», leído y guardado [L1–L6]. Hecho cuando se lee y se guarda un artículo, y el cambio se ve en el móvil.
@@ -97,6 +111,8 @@ En `crates/atalaya-desktop`. La interfaz sigue `docs/diseño/maquetas-pc.html`.
 
 Cada paso termina en una propuesta para Rubén, no en código. Si la aprueba, se escribe su ADR y se añaden pasos al plan.
 
+**Reparto:** 6.1 un subagente. 6.2 y 6.3 el orquestador, porque usan el móvil y la GPU.
+
 - [ ] **6.1 Paper completo.** Investigar la versión HTML de arXiv frente al PDF, y cómo mostrar fórmulas y tablas. Hecho cuando hay una propuesta con prueba sobre 3 papers reales.
 - [ ] **6.2 Traducción local de respaldo.** Investigar ML Kit en Android. Hecho cuando hay una propuesta con calidad y tamaño medidos.
 - [ ] **6.3 Chino al español.** Probar el modelo de la fase 1 con textos en chino. Hecho cuando hay una propuesta con 10 traducciones de ejemplo.
@@ -107,4 +123,4 @@ Cada paso termina en una propuesta para Rubén, no en código. Si la aprueba, se
 
 Una línea por sesión, la más reciente arriba. Se guardan las 10 últimas.
 
-- 2026-10-23 · 0.1 · hecho · Diseño cerrado, PRD, ADR 0001–0008 y plan. Siguiente: 0.2, instalar Miniflux.
+- 2026-10-23 · fase 0 · a medias · Hecho 0.1: diseño, PRD, ADR 0001–0008, plan y flujo con orquestador. Siguiente: 0.2, instalar Miniflux.
