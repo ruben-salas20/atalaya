@@ -1,14 +1,18 @@
 package dev.rubensalas.atalaya.ui.list
 
 import dev.rubensalas.atalaya.data.api.ApiException
+import dev.rubensalas.atalaya.data.api.Entry
 import dev.rubensalas.atalaya.data.api.EntryPage
 import dev.rubensalas.atalaya.data.api.EntryQuery
 import dev.rubensalas.atalaya.data.api.EntrySummary
+import dev.rubensalas.atalaya.data.api.EntryUpdate
+import dev.rubensalas.atalaya.data.api.Id
 import dev.rubensalas.atalaya.data.api.Sidebar
 import dev.rubensalas.atalaya.data.api.SidebarCategory
 import dev.rubensalas.atalaya.data.api.SidebarFeed
 import dev.rubensalas.atalaya.data.api.View
 import dev.rubensalas.atalaya.data.list.ListRepository
+import dev.rubensalas.atalaya.data.settings.SwipeAction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -18,6 +22,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.Instant
@@ -38,6 +43,17 @@ class ListViewModelTest {
             val from = (query.offset ?: 0).toLong()
             val to = minOf(total, from + (query.limit ?: 50))
             return EntryPage(total, (from until to).map(::entry))
+        }
+
+        val updates = mutableListOf<Pair<Long, EntryUpdate>>()
+        var failUpdate: ApiException? = null
+
+        override suspend fun entry(id: Id): Entry = throw UnsupportedOperationException()
+
+        override suspend fun updateEntry(id: Id, update: EntryUpdate): EntrySummary {
+            failUpdate?.let { throw it }
+            updates += id to update
+            return Companion.entry(id).copy(read = update.read ?: false, starred = update.starred ?: false)
         }
 
         override suspend fun markSynced() {
@@ -109,6 +125,51 @@ class ListViewModelTest {
         repo.fail = null
         vm.refresh()
         assertNull(vm.state.value.error)
+    }
+
+    @Test
+    fun swipeLeftMarksReadWithoutReloading() {
+        vm.refresh()
+        val first = vm.state.value.entries[0]
+        vm.swipe(first, SwipeAction.MarkRead)
+        val s = vm.state.value
+        assertTrue(s.entries[0].read)
+        assertEquals(listOf(first.id to EntryUpdate(read = true)), repo.updates)
+        assertEquals(1, repo.queries.size)
+        assertEquals(6L, s.sidebar!!.unread)
+        assertEquals(6L, s.sidebar!!.categories[0].unread)
+        assertEquals(2L, s.sidebar!!.categories[0].feeds[0].unread)
+        assertEquals(6L, s.count)
+    }
+
+    @Test
+    fun swipeRightStarsAndTogglesBack() {
+        vm.refresh()
+        vm.swipe(vm.state.value.entries[3], SwipeAction.Star)
+        assertTrue(vm.state.value.entries[3].starred)
+        assertEquals(2L, vm.state.value.sidebar!!.starred)
+        vm.swipe(vm.state.value.entries[3], SwipeAction.Star)
+        assertFalse(vm.state.value.entries[3].starred)
+        assertEquals(1L, vm.state.value.sidebar!!.starred)
+        assertEquals(EntryUpdate(starred = false), repo.updates.last().second)
+    }
+
+    @Test
+    fun failedSwipeIsUndone() {
+        vm.refresh()
+        repo.failUpdate = ApiException(null, "No se pudo conectar con el servicio")
+        vm.swipe(vm.state.value.entries[0], SwipeAction.MarkRead)
+        val s = vm.state.value
+        assertFalse(s.entries[0].read)
+        assertEquals(7L, s.sidebar!!.unread)
+        assertEquals("No se pudo cambiar: No se pudo conectar con el servicio", s.error)
+    }
+
+    @Test
+    fun swipeWithNoActionDoesNothing() {
+        vm.refresh()
+        vm.swipe(vm.state.value.entries[0], SwipeAction.None)
+        assertTrue(repo.updates.isEmpty())
     }
 
     private companion object {

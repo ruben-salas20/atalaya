@@ -5,10 +5,12 @@ import androidx.lifecycle.viewModelScope
 import dev.rubensalas.atalaya.data.api.ApiException
 import dev.rubensalas.atalaya.data.api.EntryQuery
 import dev.rubensalas.atalaya.data.api.EntrySummary
+import dev.rubensalas.atalaya.data.api.EntryUpdate
 import dev.rubensalas.atalaya.data.api.Id
 import dev.rubensalas.atalaya.data.api.Sidebar
 import dev.rubensalas.atalaya.data.api.View
 import dev.rubensalas.atalaya.data.list.ListRepository
+import dev.rubensalas.atalaya.data.settings.SwipeAction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -61,6 +63,36 @@ data class ListUiState(
                 is ListSelection.Feed -> s.categories.flatMap { it.feeds }.firstOrNull { it.id == sel.id }?.unread
             }
         }
+}
+
+/**
+ * Cambia leído y guardado de un artículo de la lista y ajusta los números del
+ * menú lateral, para que todo cuadre sin volver a pedirlo.
+ */
+fun ListUiState.withFlags(id: Id, read: Boolean, starred: Boolean): ListUiState {
+    val old = entries.firstOrNull { it.id == id } ?: return this
+    if (old.read == read && old.starred == starred) return this
+    val unreadDelta = (if (read) 0 else 1) - (if (old.read) 0 else 1)
+    val starredDelta = (if (starred) 1 else 0) - (if (old.starred) 1 else 0)
+    return copy(
+        entries = entries.map { if (it.id == id) it.copy(read = read, starred = starred) else it },
+        sidebar = sidebar?.adjusted(old.feedId, unreadDelta, starredDelta),
+    )
+}
+
+private fun Sidebar.adjusted(feedId: Id, unreadDelta: Int, starredDelta: Int): Sidebar {
+    fun Long.plus(d: Int) = (this + d).coerceAtLeast(0)
+    return copy(
+        unread = unread.plus(unreadDelta),
+        starred = starred.plus(starredDelta),
+        categories = categories.map { cat ->
+            if (cat.feeds.none { it.id == feedId }) cat
+            else cat.copy(
+                unread = cat.unread.plus(unreadDelta),
+                feeds = cat.feeds.map { if (it.id == feedId) it.copy(unread = it.unread.plus(unreadDelta)) else it },
+            )
+        },
+    )
 }
 
 /** Carga la lista y el menú lateral (pantallas 1 y 2). */
@@ -139,6 +171,31 @@ class ListViewModel(private val repo: ListRepository) : ViewModel() {
     }
 
     fun dismissError() = _state.update { it.copy(error = null) }
+
+    /**
+     * Deslizar una fila (L4). Cada gesto alterna: marca como leído o como no
+     * leído, guarda o quita de guardados. La fila cambia al momento y vuelve
+     * atrás si el servicio falla; la lista no se recarga.
+     */
+    fun swipe(entry: EntrySummary, action: SwipeAction) {
+        val update = when (action) {
+            SwipeAction.MarkRead -> EntryUpdate(read = !entry.read)
+            SwipeAction.Star -> EntryUpdate(starred = !entry.starred)
+            SwipeAction.None -> return
+        }
+        val before = _state.value.entries.firstOrNull { it.id == entry.id } ?: return
+        _state.update { it.withFlags(entry.id, update.read ?: before.read, update.starred ?: before.starred) }
+        viewModelScope.launch {
+            try {
+                val after = repo.updateEntry(entry.id, update)
+                _state.update { it.withFlags(entry.id, after.read, after.starred) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ApiException) {
+                _state.update { it.withFlags(entry.id, before.read, before.starred).copy(error = "No se pudo cambiar: ${errorMessage(e)}") }
+            }
+        }
+    }
 
     private fun errorMessage(e: ApiException): String =
         if (e.status == 401) "La clave no es correcta. Revísala en Ajustes." else e.message.orEmpty()

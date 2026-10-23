@@ -57,6 +57,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.rubensalas.atalaya.AppContainer
 import dev.rubensalas.atalaya.data.api.Id
 import dev.rubensalas.atalaya.data.api.View
+import dev.rubensalas.atalaya.data.settings.SwipeAction
 import dev.rubensalas.atalaya.ui.theme.Atalaya
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -123,6 +124,8 @@ fun ListScreen(
         }
     }
 
+    // Deslizar a la derecha sobre una fila es un gesto de la fila (L4); el menú
+    // se abre con ☰ o desde la franja DrawerEdge del borde, que las filas no atienden.
     ModalNavigationDrawer(
         drawerState = drawerState,
         scrimColor = c.scrim,
@@ -194,7 +197,14 @@ fun ListScreen(
                     }
                     else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                         items(state.entries, key = { it.id }) { entry ->
-                            EntryRow(entry, now = now, onClick = { onOpenArticle(entry.id) })
+                            SwipeRow(
+                                entry = entry,
+                                left = settings?.swipeLeft ?: SwipeAction.MarkRead,
+                                right = settings?.swipeRight ?: SwipeAction.Star,
+                                onSwipe = { vm.swipe(entry, it) },
+                            ) {
+                                EntryRow(entry, now = now, onClick = { onOpenArticle(entry.id) })
+                            }
                         }
                         if (state.loadingMore) {
                             item(key = "more") {
