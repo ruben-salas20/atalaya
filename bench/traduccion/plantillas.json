@@ -1,0 +1,23 @@
+{
+  "_uso": "medir.py elige la primera plantilla cuya clave aparece en el id del modelo; si ninguna, «generica». {texto} se sustituye por el texto. «user_html» se usa con las noticias; si falta, «user». «parametros» se añaden tal cual a la petición.",
+  "gemma": {
+    "user": "Translate the following text from English into Spanish. Reply with the Spanish translation only, without notes, explanations or quotes.\n\n{texto}",
+    "user_html": "Translate the following HTML fragment from English into Spanish. Keep every HTML tag and attribute exactly as it is and translate only the visible text. Reply with the translated fragment only, without notes, explanations or code fences.\n\n{texto}",
+    "parametros": {"temperature": 0.2}
+  },
+  "hunyuan": {
+    "_fuente": "Plantilla XX<=>XX y parámetros recomendados en https://github.com/Tencent-Hunyuan/Hunyuan-MT",
+    "user": "Translate the following segment into Spanish, without additional explanation.\n\n{texto}",
+    "parametros": {"temperature": 0.7, "top_p": 0.6, "top_k": 20, "repeat_penalty": 1.05}
+  },
+  "nllb": {
+    "_nota": "NLLB no sigue instrucciones: recibe solo el texto. El programa que lo sirva fija los idiomas (eng_Latn a spa_Latn).",
+    "user": "{texto}",
+    "parametros": {}
+  },
+  "generica": {
+    "user": "Translate the following text from English into Spanish. Reply with the Spanish translation only, without notes, explanations or quotes.\n\n{texto}",
+    "user_html": "Translate the following HTML fragment from English into Spanish. Keep every HTML tag and attribute exactly as it is and translate only the visible text. Reply with the translated fragment only, without notes, explanations or code fences.\n\n{texto}",
+    "parametros": {"temperature": 0.2}
+  }
+}
