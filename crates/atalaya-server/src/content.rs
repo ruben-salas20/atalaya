@@ -405,16 +405,17 @@ impl Miniflux {
         self.get(&format!("/v1/entries/{id}")).await
     }
 
-    /// Artículo completo, descargado por Miniflux 2.3.4 desde su web con su
-    /// extractor. Sin `update_content=true`, Miniflux no lo guarda: solo lo
-    /// devuelve. No cambia nada del artículo.
+    /// Artículo completo, descargado por Miniflux desde su web con su
+    /// extractor. En Miniflux 2.3.4 la ruta es `GET`, no `PUT` como en
+    /// versiones anteriores. Sin `update_content=true`, Miniflux no lo guarda:
+    /// solo lo devuelve. No cambia nada del artículo.
     async fn fetch_full_content(&self, id: Id) -> Result<String, AppError> {
         #[derive(Deserialize)]
         struct Fetched {
             content: String,
         }
         let req = self
-            .request(Method::PUT, &format!("/v1/entries/{id}/fetch-content"))
+            .request(Method::GET, &format!("/v1/entries/{id}/fetch-content"))
             .timeout(FETCH_TIMEOUT);
         let fetched: Fetched = Self::send(req).await?;
         Ok(fetched.content)
