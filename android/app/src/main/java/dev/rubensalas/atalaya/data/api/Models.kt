@@ -194,3 +194,103 @@ data class Feed(
 /** Fallo al actualizar un feed (F6). `message` es el de Miniflux, tal cual. */
 @Serializable
 data class FeedError(val message: String, val count: Int)
+
+// ---------------------------------------------------------------------------
+// Papers de arXiv (ADR 0005)
+// ---------------------------------------------------------------------------
+
+/** `GET /api/papers/translate`: cómo se buscará en arXiv una búsqueda en español (P1). */
+@Serializable
+data class QueryTranslation(
+    /** La búsqueda tal como llegó. */
+    val q: String,
+    /** La búsqueda en inglés. Igual que `q` si ya estaba en inglés. */
+    val english: String,
+)
+
+/** Dónde buscar en arXiv (P2). */
+@Serializable
+enum class PaperField {
+    @SerialName("all") All,
+    @SerialName("title") Title,
+    @SerialName("author") Author,
+    @SerialName("abstract") Abstract,
+}
+
+/** Cómo ordenar los resultados (P2). */
+@Serializable
+enum class PaperSort {
+    /** Del más nuevo al más viejo, por fecha de envío. */
+    @SerialName("recent") Recent,
+    @SerialName("relevance") Relevance,
+}
+
+/**
+ * Parámetros de `GET /api/papers/search`. `q` va en español; con
+ * [PaperField.Author] no se traduce. `limit` vale 20 por defecto y 50 como mucho.
+ */
+data class PaperQuery(
+    val q: String,
+    val field: PaperField = PaperField.All,
+    val sort: PaperSort = PaperSort.Recent,
+    val limit: Int? = null,
+    val offset: Int? = null,
+)
+
+/** Una página de resultados (P1, P3). */
+@Serializable
+data class PaperPage(
+    /** La búsqueda tal como se envió a arXiv, para «buscado como …». */
+    @SerialName("english_query") val englishQuery: String,
+    /** Cuántos resultados hay en total según arXiv, no solo en la página. */
+    val total: Long,
+    val papers: List<PaperSummary>,
+)
+
+/** Una fila de los resultados (P3). */
+@Serializable
+data class PaperSummary(
+    /** Sin versión: `2610.08812`. Los antiguos llevan barra: `hep-th/9901001`. */
+    @SerialName("arxiv_id") val arxivId: String,
+    /** En español si ya está traducido; si no, el original. */
+    val title: String,
+    @SerialName("original_title") val originalTitle: String,
+    @SerialName("title_translated") val titleTranslated: Boolean,
+    /** En el orden de arXiv. */
+    val authors: List<String>,
+    /** Fecha de la primera versión. */
+    @SerialName("published_at") @Serializable(InstantSerializer::class) val publishedAt: Instant,
+    /** Categoría principal de arXiv: `cs.CL`. */
+    val category: String,
+    /** El artículo de Miniflux si el paper está en Guardados; null si no. */
+    @SerialName("saved_entry_id") val savedEntryId: Id? = null,
+)
+
+/**
+ * `GET /api/papers/{arxiv_id}` (P4). Pedirlo pone en marcha la traducción del
+ * resumen, como [Entry]. En el JSON, los campos de [PaperSummary] van al mismo
+ * nivel que estos.
+ */
+@Serializable
+data class Paper(
+    @SerialName("arxiv_id") val arxivId: String,
+    val title: String,
+    @SerialName("original_title") val originalTitle: String,
+    @SerialName("title_translated") val titleTranslated: Boolean,
+    val authors: List<String>,
+    @SerialName("published_at") @Serializable(InstantSerializer::class) val publishedAt: Instant,
+    val category: String,
+    @SerialName("saved_entry_id") val savedEntryId: Id? = null,
+    /** Resumen original en texto plano, con los párrafos separados por una línea en blanco. */
+    @SerialName("abstract_text") val abstractText: String,
+    val translation: TranslationState,
+    /** Resumen en español, con los mismos párrafos. Solo con [TranslationState.Done]. */
+    @SerialName("translated_abstract") val translatedAbstract: String? = null,
+    /** `https://arxiv.org/abs/2610.08812`. */
+    @SerialName("abs_url") val absUrl: String,
+    /** `https://arxiv.org/pdf/2610.08812`. */
+    @SerialName("pdf_url") val pdfUrl: String,
+) {
+    val summary: PaperSummary
+        get() = PaperSummary(arxivId, title, originalTitle, titleTranslated, authors, publishedAt, category, savedEntryId)
+}
