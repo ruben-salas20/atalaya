@@ -136,6 +136,7 @@ Cada paso termina en una propuesta para Rubén, no en código. Si la aprueba, se
 
 Una línea por sesión, la más reciente arriba. Se guardan las 10 últimas.
 
+- 2026-10-23 · fase 5a · hecha · App de PC con GPUI: lista, lectura traducida, leído y guardado, feeds, carpetas y ajustes. Pruebas en sway sin pantalla. Siguiente: fase 4.
 - 2026-10-23 · fase 3 · hecha · App de Android: lista, lectura, gestos, feeds y sin conexión; compila en ai-lab. Servicio: títulos de feeds nuevos e imagen principal. Siguiente: fase 4.
 - 2026-10-23 · fase 2 · hecha · Servicio desplegado en atalaya.rubensalas.dev: listas, feeds, títulos por webhook y texto completo traducidos; copia SQLite y monitor listos. Siguiente: fases 3 y 5a.
 - 2026-10-23 · fase 1 · hecha · Gemma 4 E4B medido y elegido (ADR 0009); Hunyuan y NLLB descartados; TranslateGemma pasa a extra 6.4. Siguiente: fase 2, paso 2.1.
