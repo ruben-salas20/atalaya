@@ -23,8 +23,8 @@ Los códigos entre corchetes, como [L4], son requisitos de `docs/PRD.md`.
 **Reparto:** todo el orquestador, porque todo es `ai-lab`. Sin subagentes.
 
 - [x] **0.1 Crear el monorepo.** Repositorio git, `AGENTS.md`, `CLAUDE.md`, `docs/` y `assets/`. Hecho cuando hay un primer commit con la documentación.
-- [ ] **0.2 Instalar Miniflux en `ai-lab`.** Miniflux y PostgreSQL en `~/servicios/docker-compose.yml`, con versión fija; Miniflux 2.2.16 o posterior (ADR 0005). Dominio `rss.rubensalas.dev` en el `Caddyfile` y en el DNS, solo para Tailscale (ADR 0008). Monitor en Uptime Kuma. Puertos, DNS y convenciones: los de `~/docs/ai-lab/ai-lab-stack.md`, que también se actualiza. Hecho cuando `https://rss.rubensalas.dev` abre desde el portátil y el móvil, y los demás servicios de `docker compose ps` siguen en marcha.
-- [ ] **0.3 Configurar Miniflux.** Crear el usuario y una clave de API, guardada en `~/servicios/.env`. Añadir el feed que Rubén ya sigue (pregúntale cuál) y activar en él la descarga del artículo completo si solo trae resumen. Hecho cuando `curl` con `X-Auth-Token` devuelve artículos de ese feed.
+- [x] **0.2 Instalar Miniflux en `ai-lab`.** Miniflux y PostgreSQL en `~/servicios/docker-compose.yml`, con versión fija; Miniflux 2.2.16 o posterior (ADR 0005). Dominio `rss.rubensalas.dev` en el `Caddyfile` y en el DNS, solo para Tailscale (ADR 0008). Monitor en Uptime Kuma. Puertos, DNS y convenciones: los de `~/docs/ai-lab/ai-lab-stack.md`, que también se actualiza. Hecho cuando `https://rss.rubensalas.dev` abre desde el portátil y el móvil, y los demás servicios de `docker compose ps` siguen en marcha.
+- [x] **0.3 Configurar Miniflux.** Crear el usuario y una clave de API, guardada en `~/servicios/.env`. Añadir el feed que Rubén ya sigue (pregúntale cuál) y activar en él la descarga del artículo completo si solo trae resumen. Hecho cuando `curl` con `X-Auth-Token` devuelve artículos de ese feed.
 
 **Fase lista cuando:** Miniflux descarga el feed de Rubén y responde por su API.
 
@@ -123,4 +123,5 @@ Cada paso termina en una propuesta para Rubén, no en código. Si la aprueba, se
 
 Una línea por sesión, la más reciente arriba. Se guardan las 10 últimas.
 
+- 2026-10-23 · fase 0 · hecha · Miniflux 2.3.4 en rss.rubensalas.dev, con clave de API y el feed de Paul Graham completo. Siguiente: fase 1, paso 1.1.
 - 2026-10-23 · fase 0 · a medias · Hecho 0.1: diseño, PRD, ADR 0001–0008, plan y flujo con orquestador. Siguiente: 0.2, instalar Miniflux.
