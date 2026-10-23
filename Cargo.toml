@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/atalaya-api", "crates/atalaya-server"]
+members = ["crates/atalaya-api", "crates/atalaya-desktop", "crates/atalaya-server"]
 
 [workspace.package]
 version = "0.1.0"
