@@ -6,9 +6,10 @@
 //! Este archivo tiene lo común. Las rutas van en un archivo por tema, para
 //! que cada paso añada las suyas sin tocar las de otro:
 //! - `entries.rs`: lista, menú lateral y artículos (pasos 5.1 y 5.2).
-//! - `feeds.rs`: feeds y carpetas (paso 5.4, aún no existe).
+//! - `feeds.rs`: feeds y carpetas (paso 5.4).
 
 mod entries;
+mod feeds;
 
 use std::time::Duration;
 
@@ -44,7 +45,6 @@ impl ApiClient {
     }
 
     /// `GET /api/status`: el botón «Probar» de los ajustes.
-    #[allow(dead_code)] // Lo usa la pantalla de ajustes del paso 5.4.
     pub fn status(&self) -> Result<Status> {
         self.get("/api/status")
     }
@@ -79,7 +79,6 @@ impl ApiClient {
     }
 
     /// `DELETE` u otra petición sin cuerpo en la respuesta (204).
-    #[allow(dead_code)] // Lo usa el paso 5.4.
     pub(crate) fn send_empty(&self, method: Method, path: &str) -> Result<()> {
         check(self.request(method, path).send()).map(|_| ())
     }

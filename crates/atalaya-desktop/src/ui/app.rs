@@ -8,8 +8,10 @@ use gpui_component::Theme;
 
 use crate::assets::FONT_FAMILY;
 use crate::palette::Palette;
+use crate::settings::FontSize;
+use crate::ui::Connection;
 use crate::ui::entry_list::{EntryList, EntryListEvent};
-use crate::ui::feeds::FeedsScreen;
+use crate::ui::feeds::{FeedsEvent, FeedsScreen};
 use crate::ui::reader::{Reader, ReaderEvent};
 use crate::ui::settings::SettingsScreen;
 use crate::ui::sidebar::{Sidebar, SidebarEvent, Source};
@@ -19,9 +21,9 @@ use crate::ui::sidebar::{Sidebar, SidebarEvent, Source};
 pub enum Screen {
     /// Lista y lectura (pantallas 1 y 2 de las maquetas).
     Reading,
-    /// Gestión de feeds (pantalla 3).
+    /// Gestión de feeds (pantalla 5).
     Feeds,
-    /// Ajustes (pantalla 5).
+    /// Ajustes (pantalla 3).
     Settings,
 }
 
@@ -42,10 +44,13 @@ impl AppView {
         let sidebar = cx.new(|cx| Sidebar::new(initial.clone(), cx));
         let entry_list = cx.new(|cx| EntryList::new(initial, cx));
         let reader = cx.new(|_| Reader::default());
-        let feeds = cx.new(|_| FeedsScreen);
-        let settings = cx.new(|_| SettingsScreen);
+        let feeds = cx.new(|cx| FeedsScreen::new(window, cx));
+        let settings = cx.new(|cx| SettingsScreen::new(window, cx));
 
         let subscriptions = vec![
+            cx.observe_global::<FontSize>(|this, cx| {
+                this.reader.update(cx, |_, cx| cx.notify());
+            }),
             cx.subscribe(&sidebar, |this, _, event: &SidebarEvent, cx| match event {
                 SidebarEvent::SourceSelected(source) => {
                     this.screen = Screen::Reading;
@@ -56,8 +61,21 @@ impl AppView {
                 }
                 SidebarEvent::ScreenOpened(screen) => {
                     this.screen = *screen;
+                    if *screen == Screen::Feeds {
+                        this.feeds.update(cx, |feeds, cx| feeds.reload(cx));
+                    }
                     cx.notify();
                 }
+            }),
+            cx.subscribe(&feeds, |this, _, event: &FeedsEvent, cx| match event {
+                FeedsEvent::Changed => {
+                    this.sidebar.update(cx, |sidebar, cx| sidebar.reload(cx));
+                }
+            }),
+            // Los ajustes guardaron otra conexión: todo se vuelve a pedir.
+            cx.observe_global::<Connection>(|this, cx| {
+                this.sidebar.update(cx, |sidebar, cx| sidebar.reload(cx));
+                this.entry_list.update(cx, |list, cx| list.refresh(cx));
             }),
             cx.subscribe(
                 &entry_list,

@@ -1,9 +1,9 @@
 //! Columna 1: el menú lateral (L1), con los números de `GET /api/sidebar`.
 
 use std::collections::HashSet;
+use std::time::{Duration, Instant};
 
 use atalaya_api::{EntryQuery, Id, Sidebar as SidebarData, View};
-use chrono::{DateTime, Local};
 use gpui::prelude::*;
 use gpui::{Context, ElementId, EventEmitter, FontWeight, SharedString, Task, Window, div, px};
 
@@ -64,8 +64,17 @@ enum Active {
 
 enum Sync {
     Loading,
-    Done(DateTime<Local>),
+    /// Cuándo respondió el servicio por última vez al pedir el menú.
+    Done(Instant),
     Failed(String),
+}
+
+/// Cada cuánto se repinta «Sincronizado (N min)» para que avance solo.
+const SYNC_TICK: Duration = Duration::from_secs(15);
+
+/// Texto de S2: «Sincronizado (N min)», con los minutos enteros.
+fn synced_label(elapsed: Duration) -> String {
+    format!("Sincronizado ({} min)", elapsed.as_secs() / 60)
 }
 
 pub struct Sidebar {
@@ -74,6 +83,7 @@ pub struct Sidebar {
     collapsed: HashSet<Id>,
     sync: Sync,
     _load: Task<()>,
+    _tick: Task<()>,
 }
 
 impl EventEmitter<SidebarEvent> for Sidebar {}
@@ -86,6 +96,14 @@ impl Sidebar {
             collapsed: HashSet::new(),
             sync: Sync::Loading,
             _load: Task::ready(()),
+            _tick: cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor().timer(SYNC_TICK).await;
+                    if this.update(cx, |_, cx| cx.notify()).is_err() {
+                        break;
+                    }
+                }
+            }),
         };
         this.reload(cx);
         this
@@ -107,7 +125,7 @@ impl Sidebar {
                 match result {
                     Ok(data) => {
                         this.data = Some(data);
-                        this.sync = Sync::Done(Local::now());
+                        this.sync = Sync::Done(Instant::now());
                     }
                     Err(error) => this.sync = Sync::Failed(error),
                 }
@@ -288,7 +306,7 @@ impl Sidebar {
     fn sync_line(&self, p: &Palette) -> impl IntoElement {
         let text: SharedString = match &self.sync {
             Sync::Loading => "Sincronizando…".into(),
-            Sync::Done(at) => format!("Sincronizado ({})", at.format("%H:%M")).into(),
+            Sync::Done(at) => synced_label(at.elapsed()).into(),
             Sync::Failed(error) => error.clone().into(),
         };
         div()
@@ -370,5 +388,26 @@ impl Render for Sidebar {
                     .child(self.screen_item(Screen::Settings, Icon::Tune, "Ajustes", &p, cx))
                     .child(self.sync_line(&p)),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn synced_in_whole_minutes() {
+        assert_eq!(
+            synced_label(Duration::from_secs(20)),
+            "Sincronizado (0 min)"
+        );
+        assert_eq!(
+            synced_label(Duration::from_secs(5 * 60 + 59)),
+            "Sincronizado (5 min)"
+        );
+        assert_eq!(
+            synced_label(Duration::from_secs(90 * 60)),
+            "Sincronizado (90 min)"
+        );
     }
 }

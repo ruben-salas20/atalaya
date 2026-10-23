@@ -7,8 +7,8 @@
 //! | `sidebar.rs` | Columna 1: Todos, Sin leer, Guardados, carpetas, Feeds y Ajustes | 5.1 |
 //! | `entry_list.rs` | Columna 2: la lista de artículos | 5.1 |
 //! | `reader.rs` | Columna 3: el artículo abierto | 5.2 |
-//! | `feeds.rs` | Pantalla 3: gestión de feeds | 5.4 |
-//! | `settings.rs` | Pantalla 5: ajustes | 5.4 |
+//! | `feeds.rs` | Pantalla 5: gestión de feeds | 5.4 |
+//! | `settings.rs` | Pantalla 3: ajustes | 5.4 |
 //! | `widgets.rs`, `format.rs` | Piezas comunes: iconos, botones, horas, idioma | todos |
 
 pub mod app;

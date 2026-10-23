@@ -24,10 +24,6 @@ use crate::palette::Palette;
 use crate::ui::format::ago;
 use crate::ui::widgets::{bar, icon, icon_button};
 
-/// Tamaño de la letra del texto del artículo (17 px en las maquetas). Es el
-/// único sitio que lo fija; los ajustes lo cambian con [`Reader::set_body_size`].
-pub const BODY_SIZE: Pixels = px(17.);
-
 /// Cada cuánto se vuelve a pedir un artículo que se está traduciendo.
 const POLL_EVERY: Duration = Duration::from_secs(3);
 
@@ -54,7 +50,6 @@ pub struct Reader {
     load: Load,
     /// Lo que eligió el selector. Solo cuenta si hay traducción.
     lang: Lang,
-    body_size: Pixels,
     /// Fallo al marcar leído o guardado, que se enseña bajo la barra.
     action_error: Option<String>,
     _fetch: Task<()>,
@@ -68,7 +63,6 @@ impl Default for Reader {
             summary: None,
             load: Load::Loading,
             lang: Lang::Spanish,
-            body_size: BODY_SIZE,
             action_error: None,
             _fetch: Task::ready(()),
         }
@@ -101,13 +95,6 @@ impl Reader {
         self.summary = None;
         self.load = Load::Loading;
         self._fetch = Task::ready(());
-        cx.notify();
-    }
-
-    /// Cambia el tamaño de la letra del texto del artículo.
-    #[allow(dead_code)] // Lo conecta el orquestador con los ajustes del paso 5.4.
-    pub fn set_body_size(&mut self, size: Pixels, cx: &mut Context<Self>) {
-        self.body_size = size;
         cx.notify();
     }
 
@@ -340,7 +327,7 @@ impl Reader {
         parts.join(" · ")
     }
 
-    fn article(&self, summary: &EntrySummary, p: &Palette) -> impl IntoElement {
+    fn article(&self, summary: &EntrySummary, p: &Palette, body_size: Pixels) -> impl IntoElement {
         let entry = match &self.load {
             Load::Ready(entry) => Some(entry.as_ref()),
             _ => None,
@@ -408,7 +395,7 @@ impl Reader {
                 };
                 let id = SharedString::from(format!("body-{}-{}", summary.id, spanish));
                 div()
-                    .text_size(self.body_size)
+                    .text_size(body_size)
                     .line_height(relative(1.65))
                     .when(pending, |d| d.text_color(p.text3))
                     .child(TextView::html(id, html).selectable(true))
@@ -535,7 +522,7 @@ impl Render for Reader {
                         .child(error),
                 )
             })
-            .child(self.article(&summary, &p))
+            .child(self.article(&summary, &p, crate::settings::font_size(cx)))
             .when(pending, |d| d.child(toast(&p)))
     }
 }
