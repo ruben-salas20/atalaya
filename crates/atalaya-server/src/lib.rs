@@ -1,6 +1,8 @@
 pub mod auth;
 pub mod config;
 pub mod error;
+pub mod feed_stats;
+pub mod feeds;
 pub mod miniflux;
 pub mod translations;
 
@@ -39,6 +41,7 @@ impl AppState {
 pub fn app(state: AppState) -> Router {
     let api = Router::new()
         .route("/status", get(status))
+        .merge(feeds::routes())
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_api_key,
