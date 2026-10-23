@@ -432,7 +432,10 @@ mod tests {
         let q: PaperQuery = serde_json::from_str(r#"{"q":"modelos"}"#).unwrap();
         assert_eq!(q.field, PaperField::All);
         assert_eq!(q.sort, PaperSort::Recent);
-        assert_eq!(serde_json::to_value(PaperField::Abstract).unwrap(), "abstract");
+        assert_eq!(
+            serde_json::to_value(PaperField::Abstract).unwrap(),
+            "abstract"
+        );
     }
 
     #[test]
