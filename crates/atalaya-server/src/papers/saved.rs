@@ -211,7 +211,9 @@ impl Papers {
         let saved = match existing {
             Some(e) => {
                 if !e.starred {
+                    // Vuelve como uno recién guardado: al quitarlo se marcó leído.
                     miniflux.toggle_starred(e.id).await?;
+                    miniflux.set_read(e.id, false).await?;
                 }
                 Saved {
                     entry_id: e.id,
