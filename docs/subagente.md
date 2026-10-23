@@ -13,6 +13,7 @@ Te lanzó el orquestador de una fase para hacer **un paso** de `docs/plan.md` en
 ## Límites
 
 - **Trabajas solo en el repo.** Las APIs de `ai-lab` (Miniflux, llama-swap, el servicio) se usan por su dominio para probar. Su configuración no se toca: nada de `ssh ai-lab` para cambiar archivos o contenedores.
+- **La app de Android se compila con `android/compilar.sh`.** Crea un contenedor temporal en `ai-lab` y es lo único que puedes lanzar allí. Ver `android/README.md`.
 - **No usas el móvil.** Hay uno solo y lo maneja el orquestador.
 - **Los documentos los cambia el orquestador:** `docs/plan.md`, `docs/PRD.md`, `docs/adr/`, `docs/diseño/` y este archivo. Si crees que alguno está mal o falta algo, va en el informe.
 - **Si falta un dato que solo sabe Rubén,** para en ese punto, haz commit de lo que funcione y pon la pregunta en el informe. Una suposición tuya se fusionaría como si fuera una decisión.

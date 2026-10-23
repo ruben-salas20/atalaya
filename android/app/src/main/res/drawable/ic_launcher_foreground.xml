@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dibujo de assets/icono/atalaya.svg, escalado para caber en la zona segura
+     del icono adaptable (un círculo de 66 dp en el centro). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.64"
+        android:scaleY="0.64"
+        android:translateX="19.44"
+        android:translateY="25.2">
+        <path
+            android:fillColor="#FFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M37,22h7v7h-7z M50.5,22h7v7h-7z M64,22h7v7h-7z M36,29h36v8H36z M40,37H68L72,84H36Z M50.5,56V50a3.5,3.5 0,0 1,7 0V56Z M49,84V76a5,5 0,0 1,10 0V84Z M30,84h48v3H30z" />
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="4"
+            android:strokeLineCap="round"
+            android:pathData="M47.6,11.6A9,9 0,0 1,60.4 11.6 M42.7,6.7A16,16 0,0 1,65.3 6.7" />
+    </group>
+</vector>

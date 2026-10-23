@@ -1,0 +1,6 @@
+<resources>
+    <!-- Solo cubre el arranque; el resto del tema lo pinta Compose. -->
+    <style name="Theme.Atalaya" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FFFFFF</item>
+    </style>
+</resources>
