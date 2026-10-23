@@ -1,0 +1,22 @@
+[package]
+name = "atalaya-desktop"
+description = "App de PC de Atalaya, con GPUI"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# GPUI y gpui-component van con versión exacta (ADR 0006): su API cambia sin
+# aviso. gpui-component 0.8.0 exige gpui-pre =0.3.9, la copia de GPUI que
+# publica su autor; gpui-pre-platform es la parte de cada sistema y
+# gpui-kit-assets trae los iconos que usan los componentes.
+[dependencies]
+atalaya-api.workspace = true
+chrono.workspace = true
+gpui = { package = "gpui-pre", version = "=0.3.9" }
+gpui-component = "=0.8.0"
+gpui-kit-assets = "=0.8.0"
+# Sin estas dos funciones GPUI no abre ventanas: arranca sin pantalla.
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.9", features = ["wayland", "x11"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "query", "rustls"] }
+serde.workspace = true
+toml = "0.9"
