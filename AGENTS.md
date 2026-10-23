@@ -13,7 +13,7 @@ Cada sesión hace **una fase** del plan. Quien abre la sesión es el **orquestad
 3. **Haz tus pasos.** Son los que tocan un recurso único: `ai-lab`, la GPU o el móvil (ver la tabla de abajo). Haz commit de cada uno en `fase-N` con su número. Hecho cuando cada paso tuyo cumple su «Hecho cuando», comprobado por ti.
 4. **Lanza los subagentes.** Antes, haz commit: el worktree parte del último commit. Lanza cada uno con la herramienta de agentes y aislamiento `worktree`, con este prompt: «Lee `<ruta absoluta del repo>/docs/subagente.md` y síguelo. Tu paso: N.M.», más los datos que Rubén dio en esta sesión. Lanza a la vez solo los pasos del mismo grupo del Reparto; el resto, de uno en uno. Hecho cuando cada subagente ha devuelto su informe.
 5. **Comprueba y fusiona.** Por cada informe: fusiona su rama en `fase-N` con `git merge --no-ff`, resuelve los conflictos, y repite tú las pruebas que cita y las de «Falta comprobar». Un subagente informa igual de seguro cuando acierta que cuando se equivoca: la casilla `[x]` se marca solo con tu prueba. Lleva a Rubén sus preguntas. Hecho cuando cada paso de la fase está marcado y comprobado por ti.
-6. **Cierra la fase.** Añade la línea de la Bitácora, haz commit, sube `fase-N` y abre el PR con la plantilla de abajo. Dile a Rubén qué se hizo, que revise y fusione el PR, y que después abra una sesión nueva. El PR lo fusiona Rubén, nunca tú. Hecho cuando el PR está abierto y le has dado su enlace.
+6. **Cierra la fase.** Añade la línea de la Bitácora, haz commit, sube `fase-N` y abre el PR con la plantilla de abajo. Si el PR solo cambia documentación, fusiónalo tú. Si cambia código, lo fusiona Rubén. Tras la fusión, borra `fase-N` en local y en `origin`, y los worktrees de sus subagentes. Dile a Rubén qué se hizo y que abra una sesión nueva. Hecho cuando el PR está fusionado, o abierto y con su enlace dado a Rubén.
 
 Si la sesión se va a cortar antes, apunta «a medias» en la Bitácora, haz commit y sube `fase-N`: la siguiente sesión sigue desde esa rama.
 
@@ -93,7 +93,7 @@ Plantilla de un ADR nuevo, en `docs/adr/NNNN-titulo-en-minusculas.md`, con el n�
 
 - **Idioma:** nombres del código en inglés. Comentarios, documentos, mensajes a Rubén y commits en español claro, según la norma UNE-ISO 24495-1: lo importante primero, frases cortas y cada término técnico explicado la primera vez.
 - **Commits:** uno por paso terminado, con el número del paso: `2.3: traduce los títulos al llegar`.
-- **Ramas:** el orquestador sube solo `fase-N`. Nunca hace `push` a `main` ni fusiona el PR.
+- **Ramas:** el orquestador sube solo `fase-N`. Nunca hace `push` a `main`. Fusiona el PR solo si es de documentación.
 - **`sudo`:** pide contraseña y no puedes escribirla. Dale a Rubén el comando para su terminal y comprueba después que quedó.
 
 ## ai-lab
