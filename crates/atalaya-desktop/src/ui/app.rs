@@ -8,8 +8,9 @@ use gpui_component::Theme;
 
 use crate::assets::FONT_FAMILY;
 use crate::palette::Palette;
+use crate::ui::Connection;
 use crate::ui::entry_list::{EntryList, EntryListEvent};
-use crate::ui::feeds::FeedsScreen;
+use crate::ui::feeds::{FeedsEvent, FeedsScreen};
 use crate::ui::reader::Reader;
 use crate::ui::settings::SettingsScreen;
 use crate::ui::sidebar::{Sidebar, SidebarEvent, Source};
@@ -42,8 +43,8 @@ impl AppView {
         let sidebar = cx.new(|cx| Sidebar::new(initial.clone(), cx));
         let entry_list = cx.new(|cx| EntryList::new(initial, cx));
         let reader = cx.new(|_| Reader::default());
-        let feeds = cx.new(|_| FeedsScreen);
-        let settings = cx.new(|_| SettingsScreen);
+        let feeds = cx.new(|cx| FeedsScreen::new(window, cx));
+        let settings = cx.new(|cx| SettingsScreen::new(window, cx));
 
         let subscriptions = vec![
             cx.subscribe(&sidebar, |this, _, event: &SidebarEvent, cx| match event {
@@ -56,8 +57,21 @@ impl AppView {
                 }
                 SidebarEvent::ScreenOpened(screen) => {
                     this.screen = *screen;
+                    if *screen == Screen::Feeds {
+                        this.feeds.update(cx, |feeds, cx| feeds.reload(cx));
+                    }
                     cx.notify();
                 }
+            }),
+            cx.subscribe(&feeds, |this, _, event: &FeedsEvent, cx| match event {
+                FeedsEvent::Changed => {
+                    this.sidebar.update(cx, |sidebar, cx| sidebar.reload(cx));
+                }
+            }),
+            // Los ajustes guardaron otra conexión: todo se vuelve a pedir.
+            cx.observe_global::<Connection>(|this, cx| {
+                this.sidebar.update(cx, |sidebar, cx| sidebar.reload(cx));
+                this.entry_list.update(cx, |list, cx| list.refresh(cx));
             }),
             cx.subscribe(
                 &entry_list,

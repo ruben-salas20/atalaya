@@ -1,19 +1,47 @@
 //! Ajustes de la app, en `~/.config/atalaya/ajustes.toml` (permisos 600).
 //!
-//! Hoy solo se leen. La pantalla de ajustes (paso 5.4) añadirá aquí la
-//! escritura: por eso [`Settings`] también se puede serializar.
+//! La pantalla de ajustes los escribe con [`Settings::save`]. El tamaño de
+//! letra del lector vive además en el global [`FontSize`], para que el lector
+//! lo lea sin abrir el archivo y se repinte cuando cambia.
 
 use std::fmt;
-use std::path::PathBuf;
+use std::io::Write;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::path::{Path, PathBuf};
 
+use gpui::{App, Global, Pixels, px};
 use serde::{Deserialize, Serialize};
+
+/// Tamaños de letra del lector que ofrece la pantalla de ajustes, en px.
+pub const FONT_SIZES: &[u32] = &[14, 15, 16, 17, 18, 19, 20, 22, 24];
+/// El de las maquetas (`.article p { font-size: 17px }`).
+pub const DEFAULT_FONT_SIZE: u32 = 17;
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
     /// Dirección del servicio, sin `/api`: `https://atalaya.rubensalas.dev`.
+    #[serde(default)]
     pub service_url: String,
     /// Clave que va en `Authorization: Bearer`.
+    #[serde(default)]
     pub api_key: String,
+    /// Tamaño de letra del texto del artículo, en px.
+    #[serde(default = "default_font_size")]
+    pub font_size: u32,
+}
+
+fn default_font_size() -> u32 {
+    DEFAULT_FONT_SIZE
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            service_url: String::new(),
+            api_key: String::new(),
+            font_size: DEFAULT_FONT_SIZE,
+        }
+    }
 }
 
 // A mano, para que la clave no salga nunca en un log.
@@ -22,6 +50,7 @@ impl fmt::Debug for Settings {
         f.debug_struct("Settings")
             .field("service_url", &self.service_url)
             .field("api_key", &"<oculta>")
+            .field("font_size", &self.font_size)
             .finish()
     }
 }
@@ -37,7 +66,10 @@ impl Settings {
         Some(config.join("atalaya").join("ajustes.toml"))
     }
 
-    pub fn load() -> Result<Self, String> {
+    /// Lee el archivo sin exigir que esté completo: la pantalla de ajustes
+    /// lo necesita así para que se pueda corregir. Para conectar, después
+    /// hay que llamar a [`Settings::validate`].
+    pub fn read() -> Result<Self, String> {
         let path = Self::path().ok_or("No se sabe cuál es la carpeta de configuración")?;
         let text = std::fs::read_to_string(&path)
             .map_err(|e| format!("No se pudo leer {}: {e}", path.display()))?;
@@ -45,13 +77,62 @@ impl Settings {
     }
 
     fn parse(text: &str) -> Result<Self, String> {
-        let settings: Self = toml::from_str(text)
-            .map_err(|e| format!("el archivo no es válido: {}", e.message()))?;
-        if settings.service_url.trim().is_empty() || settings.api_key.trim().is_empty() {
-            return Err("faltan service_url o api_key".into());
-        }
-        Ok(settings)
+        toml::from_str(text).map_err(|e| format!("el archivo no es válido: {}", e.message()))
     }
+
+    /// Comprueba que hay lo necesario para hablar con el servicio.
+    pub fn validate(self) -> Result<Self, String> {
+        if self.service_url.trim().is_empty() || self.api_key.trim().is_empty() {
+            return Err("Faltan la dirección del servicio o la clave en los ajustes".into());
+        }
+        Ok(self)
+    }
+
+    /// Escribe el archivo con permisos 600. Primero escribe una copia al
+    /// lado y luego la renombra, para no dejar el archivo a medias.
+    pub fn save(&self) -> Result<(), String> {
+        let path = Self::path().ok_or("No se sabe cuál es la carpeta de configuración")?;
+        self.save_to(&path)
+            .map_err(|e| format!("No se pudo guardar {}: {e}", path.display()))
+    }
+
+    fn save_to(&self, path: &Path) -> std::io::Result<()> {
+        let text = toml::to_string(self).map_err(std::io::Error::other)?;
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let tmp = path.with_extension("toml.tmp");
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)?;
+        // `mode` solo cuenta al crear: si la copia ya existía, se fuerza aquí.
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, path)
+    }
+}
+
+/// Tamaño de letra del lector, compartido por las vistas. `main` lo pone al
+/// arrancar y la pantalla de ajustes lo cambia al elegir otro.
+///
+/// El lector lo lee con [`font_size`] en su `render`. Para repintarse cuando
+/// cambia, se suscribe con `cx.observe_global::<FontSize>(|_, cx| cx.notify())`.
+#[allow(dead_code)] // El lector aún no lo lee: se conecta tras fusionar el paso 5.2.
+pub struct FontSize(pub u32);
+
+impl Global for FontSize {}
+
+/// Tamaño de letra del texto del artículo.
+#[allow(dead_code)] // Ver `FontSize`.
+pub fn font_size(cx: &App) -> Pixels {
+    let size = cx
+        .try_global::<FontSize>()
+        .map_or(DEFAULT_FONT_SIZE, |f| f.0);
+    px(size as f32)
 }
 
 #[cfg(test)]
@@ -63,12 +144,15 @@ mod tests {
         let s = Settings::parse("service_url = \"https://x.dev\"\napi_key = \"k\"\n").unwrap();
         assert_eq!(s.service_url, "https://x.dev");
         assert_eq!(s.api_key, "k");
+        assert_eq!(s.font_size, DEFAULT_FONT_SIZE);
     }
 
     #[test]
     fn rejects_missing_key() {
-        assert!(Settings::parse("service_url = \"https://x.dev\"\n").is_err());
-        assert!(Settings::parse("service_url = \"https://x.dev\"\napi_key = \"\"\n").is_err());
+        let missing = Settings::parse("service_url = \"https://x.dev\"\n").unwrap();
+        assert!(missing.validate().is_err());
+        let empty = Settings::parse("service_url = \"https://x.dev\"\napi_key = \"\"\n").unwrap();
+        assert!(empty.validate().is_err());
     }
 
     #[test]
@@ -76,7 +160,25 @@ mod tests {
         let s = Settings {
             service_url: "https://x.dev".into(),
             api_key: "secreta".into(),
+            font_size: 17,
         };
         assert!(!format!("{s:?}").contains("secreta"));
+    }
+
+    #[test]
+    fn saves_with_mode_600() {
+        let dir = std::env::temp_dir().join(format!("atalaya-ajustes-{}", std::process::id()));
+        let path = dir.join("atalaya").join("ajustes.toml");
+        let s = Settings {
+            service_url: "https://x.dev".into(),
+            api_key: "k".into(),
+            font_size: 20,
+        };
+        s.save_to(&path).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        let back = Settings::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(mode, 0o600);
+        assert_eq!(back, s);
     }
 }

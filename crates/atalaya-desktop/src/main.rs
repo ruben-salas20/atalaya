@@ -13,12 +13,17 @@ use gpui::{App, Bounds, WindowBounds, WindowDecorations, WindowOptions, px, size
 use gpui_component::{Root, Theme};
 
 use crate::client::ApiClient;
-use crate::settings::Settings;
+use crate::settings::{FontSize, Settings};
 use crate::ui::Connection;
 use crate::ui::app::AppView;
 
 fn main() {
-    let connection = Settings::load()
+    let settings = Settings::read();
+    let font_size = settings
+        .as_ref()
+        .map_or(settings::DEFAULT_FONT_SIZE, |s| s.font_size);
+    let connection = settings
+        .and_then(Settings::validate)
         .and_then(|s| ApiClient::new(&s))
         .map(Arc::new);
     if let Err(error) = &connection {
@@ -34,6 +39,7 @@ fn main() {
             gpui_component::init(cx);
             Theme::update(cx, |theme| theme.font_family = assets::FONT_FAMILY.into());
             cx.set_global(Connection(connection));
+            cx.set_global(FontSize(font_size));
 
             let bounds = Bounds::centered(None, size(px(1200.), px(740.)), cx);
             let options = WindowOptions {
