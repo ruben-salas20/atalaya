@@ -24,7 +24,7 @@ Los códigos entre corchetes, como [L4], son requisitos de `docs/PRD.md`.
 
 - [x] **0.1 Crear el monorepo.** Repositorio git, `AGENTS.md`, `CLAUDE.md`, `docs/` y `assets/`. Hecho cuando hay un primer commit con la documentación.
 - [x] **0.2 Instalar Miniflux en `ai-lab`.** Miniflux y PostgreSQL en `~/servicios/docker-compose.yml`, con versión fija; Miniflux 2.2.16 o posterior (ADR 0005). Dominio `rss.rubensalas.dev` en el `Caddyfile` y en el DNS, solo para Tailscale (ADR 0008). Monitor en Uptime Kuma. Puertos, DNS y convenciones: los de `~/docs/ai-lab/ai-lab-stack.md`, que también se actualiza. Hecho cuando `https://rss.rubensalas.dev` abre desde el portátil y el móvil, y los demás servicios de `docker compose ps` siguen en marcha.
-- [ ] **0.3 Configurar Miniflux.** Crear el usuario y una clave de API, guardada en `~/servicios/.env`. Añadir el feed que Rubén ya sigue (pregúntale cuál) y activar en él la descarga del artículo completo si solo trae resumen. Hecho cuando `curl` con `X-Auth-Token` devuelve artículos de ese feed.
+- [x] **0.3 Configurar Miniflux.** Crear el usuario y una clave de API, guardada en `~/servicios/.env`. Añadir el feed que Rubén ya sigue (pregúntale cuál) y activar en él la descarga del artículo completo si solo trae resumen. Hecho cuando `curl` con `X-Auth-Token` devuelve artículos de ese feed.
 
 **Fase lista cuando:** Miniflux descarga el feed de Rubén y responde por su API.
 
