@@ -10,8 +10,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && cp target/release/atalaya-server /usr/local/bin/
 
 FROM debian:trixie-slim
+# sqlite3 sirve a la copia diaria: hace un volcado coherente con `.backup`.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates sqlite3 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -u 1000 -m atalaya \
     && mkdir /data && chown atalaya:atalaya /data

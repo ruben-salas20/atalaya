@@ -1,12 +1,13 @@
 //! Punto de encuentro entre la lectura (paso 2.2) y la traducción (2.3 y 2.4).
 //!
-//! La lectura llama a estos métodos para completar lo que devuelve. Mientras
-//! la traducción no existe, devuelven «sin traducir»; los pasos 2.3 y 2.4
-//! los rellenan sin cambiar su firma.
+//! La lectura llama a estos métodos para completar lo que devuelve. Los
+//! títulos se traducen en `titles` (2.3); el texto completo, en 2.4.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use atalaya_api::{Id, TranslationState};
+
+use crate::{llama::Llama, store, store::Store, titles::Queue};
 
 /// Lo que se sabe del título de un artículo.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -17,18 +18,51 @@ pub struct TitleInfo {
     pub lang: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct Translations {}
+#[derive(Clone)]
+pub struct Translations {
+    inner: Arc<Inner>,
+}
+
+struct Inner {
+    store: Store,
+    llama: Llama,
+    queue: Queue,
+}
 
 impl Translations {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(store: Store, llama: Llama) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                store,
+                llama,
+                queue: Queue::new(),
+            }),
+        }
+    }
+
+    pub fn store(&self) -> &Store {
+        &self.inner.store
+    }
+
+    pub fn llama(&self) -> &Llama {
+        &self.inner.llama
+    }
+
+    pub(crate) fn queue(&self) -> &Queue {
+        &self.inner.queue
     }
 
     /// Títulos ya traducidos de esos artículos. Los que faltan en el mapa,
-    /// aún no. Paso 2.3.
-    pub async fn titles(&self, _entry_ids: &[Id]) -> HashMap<Id, TitleInfo> {
-        HashMap::new()
+    /// aún no se han visto. Paso 2.3.
+    pub async fn titles(&self, entry_ids: &[Id]) -> HashMap<Id, TitleInfo> {
+        let ids = entry_ids.to_vec();
+        match self.store().call(move |c| store::titles(c, &ids)).await {
+            Ok(map) => map,
+            Err(e) => {
+                tracing::error!("no se pudieron leer los títulos traducidos: {e}");
+                HashMap::new()
+            }
+        }
     }
 
     /// Estado de la traducción del texto completo de un artículo y, si está
