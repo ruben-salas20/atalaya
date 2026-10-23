@@ -330,6 +330,11 @@ pub enum PaperSort {
 /// `?q=modelos+pequeños&field=title&sort=relevance&limit=20&offset=0`.
 ///
 /// Con `field: Author`, la búsqueda no se traduce: los nombres van tal cual.
+///
+/// Si `q` es solo un identificador de arXiv (`1706.03762`, `arXiv:1706.03762v7`
+/// o el enlace a su página o su PDF), devuelve ese paper o ninguno, y
+/// `english_query` es el identificador. Lo que va entre comillas se busca
+/// como frase exacta, también después de traducirlo.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PaperQuery {
     /// La búsqueda en español.

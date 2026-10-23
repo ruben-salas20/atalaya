@@ -173,6 +173,11 @@ async fn search(
 ) -> AppResult<Json<PaperPage>> {
     let Query(query) = query.map_err(|e| invalid(e.body_text()))?;
     let papers = &state.papers;
+    if query.field != PaperField::Author
+        && let Some(id) = arxiv::id_in_query(&query.q)
+    {
+        return search_by_id(papers, id, query.offset.unwrap_or(0)).await;
+    }
     let english = match query.field {
         // Los nombres van tal cual.
         PaperField::Author => query.q.split_whitespace().collect::<Vec<_>>().join(" "),
@@ -203,6 +208,29 @@ async fn search(
         total: page.total,
         papers: page
             .papers
+            .iter()
+            .map(|p| summary(p, titles.get(&p.arxiv_id), saved.get(&p.arxiv_id).copied()))
+            .collect(),
+    }))
+}
+
+/// Una búsqueda que es un identificador de arXiv: ese paper o ninguno.
+async fn search_by_id(papers: &Papers, id: String, offset: u32) -> AppResult<Json<PaperPage>> {
+    let found = if offset == 0 {
+        papers.arxiv().paper(&id).await?
+    } else {
+        None
+    };
+    let found: Vec<ArxivPaper> = found.into_iter().collect();
+    papers.remember(&found).await;
+    let titles = papers
+        .titles(found.iter().map(to_translate).collect())
+        .await;
+    let saved = papers.saved_entries().await;
+    Ok(Json(PaperPage {
+        english_query: id,
+        total: u64::from(offset == 0 && !found.is_empty()),
+        papers: found
             .iter()
             .map(|p| summary(p, titles.get(&p.arxiv_id), saved.get(&p.arxiv_id).copied()))
             .collect(),

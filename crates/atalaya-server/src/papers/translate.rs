@@ -61,6 +61,11 @@ pub struct TitleToTranslate {
     pub abstract_text: String,
 }
 
+/// Las comillas españolas y tipográficas pasan a ser `"`.
+pub fn normalize_quotes(q: &str) -> String {
+    q.replace(['«', '»', '“', '”'], "\"")
+}
+
 /// La clave de la caché de búsquedas: minúsculas y espacios normalizados.
 pub fn query_key(q: &str) -> String {
     q.split_whitespace()
@@ -70,8 +75,38 @@ pub fn query_key(q: &str) -> String {
 }
 
 impl Papers {
-    /// La búsqueda en inglés. Usa la caché si ya se tradujo antes.
+    /// La búsqueda en inglés. Un identificador de arXiv no se traduce. Lo que
+    /// va entre comillas se traduce aparte y conserva sus comillas, porque el
+    /// modelo las quita.
     pub async fn english_query(&self, q: &str) -> AppResult<String> {
+        if let Some(id) = super::arxiv::id_in_query(q) {
+            return Ok(id);
+        }
+        let q = normalize_quotes(q);
+        if !q.contains('"') {
+            return self.english_chunk(&q).await;
+        }
+        let mut parts = Vec::new();
+        for (i, chunk) in q.split('"').enumerate() {
+            if chunk.trim().is_empty() {
+                continue;
+            }
+            let english = self.english_chunk(chunk).await?;
+            // Los trozos impares estaban entre comillas.
+            parts.push(if i % 2 == 1 {
+                format!("\"{english}\"")
+            } else {
+                english
+            });
+        }
+        if parts.is_empty() {
+            return Err(AppError::bad_request("la búsqueda está vacía"));
+        }
+        Ok(parts.join(" "))
+    }
+
+    /// Un trozo de búsqueda en inglés. Usa la caché si ya se tradujo antes.
+    async fn english_chunk(&self, q: &str) -> AppResult<String> {
         let q = q.split_whitespace().collect::<Vec<_>>().join(" ");
         if q.is_empty() {
             return Err(AppError::bad_request("la búsqueda está vacía"));
@@ -283,6 +318,14 @@ mod tests {
         assert_eq!(
             numbered_lines("1. A\n1. B\n2. C", 2),
             [None, Some("C".into())]
+        );
+    }
+
+    #[test]
+    fn normalizes_quotes() {
+        assert_eq!(
+            normalize_quotes("«modelos» “pequeños”"),
+            "\"modelos\" \"pequeños\""
         );
     }
 

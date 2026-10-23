@@ -32,11 +32,13 @@ const CACHE_MAX: usize = 200;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Palabras que no se mandan a arXiv: no ayudan a buscar y `and`, `or` y
-/// `not` son operadores de su API.
+/// Palabras que no se mandan sueltas a arXiv. Son las que su buscador
+/// (Lucene) no indexa: exigir `all:is` deja la búsqueda casi sin resultados.
+/// Además, `and`, `or` y `not` son operadores de su API.
 const STOPWORDS: &[&str] = &[
-    "a", "an", "the", "of", "for", "in", "on", "and", "or", "not", "to", "with", "by", "at",
-    "from", "andnot",
+    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into", "is", "it",
+    "no", "not", "of", "on", "or", "such", "that", "the", "their", "then", "there", "these",
+    "they", "this", "to", "was", "will", "with", "from", "andnot",
 ];
 
 /// Un paper tal como lo da arXiv.
@@ -183,8 +185,10 @@ impl Arxiv {
 }
 
 /// La búsqueda en la sintaxis de arXiv: cada palabra con el prefijo del
-/// campo, unidas con `AND`. Lo que va entre comillas se busca como frase. Con
-/// `Author`, el nombre entero va como frase. `None` si no queda nada.
+/// campo, unidas con `AND`. Si no hay comillas y son varias palabras, también
+/// vale la frase entera, para que un título copiado tal cual salga primero al
+/// ordenar por relevancia. Lo que va entre comillas se busca solo como frase.
+/// Con `Author`, el nombre entero va como frase. `None` si no queda nada.
 pub fn search_query(english: &str, field: PaperField) -> Option<String> {
     let prefix = match field {
         PaperField::All => "all",
@@ -217,7 +221,43 @@ pub fn search_query(english: &str, field: PaperField) -> Option<String> {
             }
         }
     }
-    (!terms.is_empty()).then(|| terms.join(" AND "))
+    if terms.is_empty() {
+        return None;
+    }
+    let all_words = words(english);
+    let and = terms.join(" AND ");
+    if field != PaperField::Author && !english.contains('"') && all_words.len() > 1 {
+        let whole = phrase(prefix, &all_words.join(" "));
+        return Some(if terms.len() > 1 {
+            format!("{whole} OR ({and})")
+        } else {
+            format!("{whole} OR {and}")
+        });
+    }
+    Some(and)
+}
+
+/// El identificador de arXiv, sin versión, si la búsqueda es solo eso:
+/// `1706.03762`, `arXiv:1706.03762v7`, `hep-th/9901001` o un enlace a la
+/// página o al PDF.
+pub fn id_in_query(q: &str) -> Option<String> {
+    let mut s = q.trim().trim_end_matches('/');
+    for prefix in [
+        "https://",
+        "http://",
+        "www.",
+        "export.",
+        "arxiv.org/abs/",
+        "arxiv.org/pdf/",
+        "arxiv:",
+    ] {
+        if s.len() >= prefix.len() && s[..prefix.len()].eq_ignore_ascii_case(prefix) {
+            s = &s[prefix.len()..];
+        }
+    }
+    let s = s.strip_suffix(".pdf").unwrap_or(s);
+    let id = strip_version(s);
+    is_valid_id(id).then(|| id.to_owned())
 }
 
 fn phrase(prefix: &str, text: &str) -> String {
@@ -514,7 +554,21 @@ mod tests {
     fn builds_queries() {
         assert_eq!(
             search_query("small language models for agents", PaperField::All).as_deref(),
-            Some("all:small AND all:language AND all:models AND all:agents")
+            Some(
+                "all:\"small language models for agents\" OR \
+                 (all:small AND all:language AND all:models AND all:agents)"
+            )
+        );
+        assert_eq!(
+            search_query("Attention is all you need", PaperField::Title).as_deref(),
+            Some(
+                "ti:\"Attention is all you need\" OR \
+                 (ti:Attention AND ti:all AND ti:you AND ti:need)"
+            )
+        );
+        assert_eq!(
+            search_query("the transformer", PaperField::All).as_deref(),
+            Some("all:\"the transformer\" OR all:transformer")
         );
         assert_eq!(
             search_query("\"small language models\" edge", PaperField::Title).as_deref(),
@@ -526,7 +580,11 @@ mod tests {
         );
         assert_eq!(
             search_query("LLM: (quantization)?", PaperField::Abstract).as_deref(),
-            Some("abs:LLM AND abs:quantization")
+            Some("abs:\"LLM quantization\" OR (abs:LLM AND abs:quantization)")
+        );
+        assert_eq!(
+            search_query("transformers", PaperField::All).as_deref(),
+            Some("all:transformers")
         );
         assert_eq!(search_query(" the of ", PaperField::All), None);
     }
@@ -543,6 +601,26 @@ mod tests {
         assert!(!is_valid_id("2610.08812v1"));
         assert!(!is_valid_id("hola"));
         assert!(!is_valid_id("../etc"));
+    }
+
+    #[test]
+    fn finds_ids_in_queries() {
+        for q in [
+            "1706.03762",
+            " arXiv:1706.03762v7 ",
+            "https://arxiv.org/abs/1706.03762",
+            "arxiv.org/pdf/1706.03762v5.pdf",
+            "http://export.arxiv.org/abs/1706.03762/",
+        ] {
+            assert_eq!(id_in_query(q).as_deref(), Some("1706.03762"), "{q}");
+        }
+        assert_eq!(
+            id_in_query("hep-th/9901001v2").as_deref(),
+            Some("hep-th/9901001")
+        );
+        assert_eq!(id_in_query("attention is all you need"), None);
+        assert_eq!(id_in_query("1706.03762 transformers"), None);
+        assert_eq!(id_in_query("2024"), None);
     }
 
     #[test]
