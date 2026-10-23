@@ -434,9 +434,10 @@ impl Reader {
     }
 }
 
-/// Barra fina de avance bajo la barra superior mientras se traduce. No se
+/// Barra fina de avance bajo la barra superior mientras se traduce. También
+/// la usa el lector de papers. No se
 /// sabe cuánto falta, así que un tramo recorre la barra de lado a lado.
-fn progress(p: &Palette) -> impl IntoElement {
+pub fn progress(p: &Palette) -> impl IntoElement {
     div()
         .h(px(2.))
         .flex_none()
@@ -459,7 +460,7 @@ fn progress(p: &Palette) -> impl IntoElement {
 }
 
 /// Aviso flotante abajo y en el centro (`.toast`).
-fn toast(p: &Palette) -> impl IntoElement {
+pub fn toast(p: &Palette) -> impl IntoElement {
     div()
         .absolute()
         .bottom(px(22.))
