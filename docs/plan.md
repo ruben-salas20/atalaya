@@ -52,7 +52,7 @@ Crate `crates/atalaya-server`, con los tipos compartidos en `crates/atalaya-api`
 
 **Reparto:** 2.1 el orquestador, porque despliega en `ai-lab`. Después, [2.2, 2.3, 2.5] en paralelo, y luego 2.4, que usa la traducción de 2.3. El orquestador despliega lo fusionado y hace las pruebas con `curl`.
 
-- [ ] **2.1 Esqueleto y despliegue.** Workspace de Cargo, los dos crates, un endpoint de salud, Dockerfile, entrada en `docker-compose.yml`, dominio `atalaya.rubensalas.dev` y monitor en Uptime Kuma. Además, los tipos de la API de toda la fase en `atalaya-api`, para que los pasos en paralelo partan del mismo contrato. Hecho cuando `https://atalaya.rubensalas.dev/health` responde desde el móvil.
+- [x] **2.1 Esqueleto y despliegue.** Workspace de Cargo, los dos crates, un endpoint de salud, Dockerfile, entrada en `docker-compose.yml`, dominio `atalaya.rubensalas.dev` y monitor en Uptime Kuma. Además, los tipos de la API de toda la fase en `atalaya-api`, para que los pasos en paralelo partan del mismo contrato. Hecho cuando `https://atalaya.rubensalas.dev/health` responde desde el móvil.
 - [x] **2.2 Listas desde Miniflux.** Listas, marcar leído y guardar, reenviados a Miniflux [L1, S1]. Todo protegido con una clave. Hecho cuando con `curl` se lista, se marca y el cambio se ve en la web de Miniflux.
 - [x] **2.3 Traducir títulos.** Webhook de Miniflux para lo nuevo, detección de idioma, traducción de títulos por llama-swap y base SQLite de traducciones [T1–T4]. Hecho cuando un artículo nuevo aparece en la lista con el título en español en menos de un minuto.
 - [x] **2.4 Traducir el texto completo.** Al abrir o guardar, por párrafos, conservando el HTML [T2, T5]. Si solo hay resumen, pedir antes el original a Miniflux [L7]. Mientras traduce, la API lo indica [L6]. Hecho cuando abrir un artículo en inglés devuelve el texto en español con sus enlaces intactos.
@@ -124,6 +124,7 @@ Cada paso termina en una propuesta para Rubén, no en código. Si la aprueba, se
 
 Una línea por sesión, la más reciente arriba. Se guardan las 10 últimas.
 
+- 2026-10-23 · fase 2 · hecha · Servicio desplegado en atalaya.rubensalas.dev: listas, feeds, títulos por webhook y texto completo traducidos. Pendiente: copia SQLite con sudo y monitor. Siguiente: fase 3, paso 3.1.
 - 2026-10-23 · fase 1 · hecha · Gemma 4 E4B medido y elegido (ADR 0009); Hunyuan y NLLB descartados; TranslateGemma pasa a extra 6.4. Siguiente: fase 2, paso 2.1.
 - 2026-10-23 · fase 0 · hecha · Miniflux 2.3.4 en rss.rubensalas.dev, con clave de API y el feed de Paul Graham completo. Siguiente: fase 1, paso 1.1.
 - 2026-10-23 · fase 0 · a medias · Hecho 0.1: diseño, PRD, ADR 0001–0008, plan y flujo con orquestador. Siguiente: 0.2, instalar Miniflux.
