@@ -132,6 +132,34 @@ impl Translations {
         tokio::spawn(self.clone().backfill(self.miniflux().clone()));
     }
 
+    /// Manda a traducir los títulos de un feed recién creado. Miniflux guarda
+    /// sus artículos al crearlo, pero el webhook solo avisa cuando actualiza un
+    /// feed: sin esto, esos títulos esperarían a la revisión al arrancar.
+    pub fn submit_new_feed(&self, feed_id: Id) {
+        let this = self.clone();
+        tokio::spawn(async move {
+            match this.miniflux().feed_entries_page(feed_id, PAGE_SIZE).await {
+                Ok(page) => {
+                    let entries = page
+                        .entries
+                        .into_iter()
+                        .map(|e| {
+                            let content = e.content.unwrap_or_default();
+                            NewEntry::new(e.id, e.feed_id, e.title, &content)
+                        })
+                        .collect();
+                    let queued = this.submit_titles(entries, Priority::Urgent).await;
+                    tracing::info!(feed = feed_id, "feed nuevo: {queued} títulos en cola");
+                }
+                Err(e) => tracing::warn!(
+                    feed = feed_id,
+                    "feed nuevo: no se pudieron leer sus artículos: {}",
+                    e.message
+                ),
+            }
+        });
+    }
+
     /// Pone un párrafo del texto completo en cola. La respuesta llega por
     /// `job.reply`.
     pub(crate) fn queue_segment(&self, job: SegmentJob) {
@@ -311,6 +339,18 @@ impl Miniflux {
     ) -> Result<MinifluxEntryPage, crate::error::AppError> {
         self.get(&format!(
             "/v1/entries?order=id&direction=desc&limit={limit}&offset={offset}"
+        ))
+        .await
+    }
+
+    /// Los artículos más nuevos de un feed.
+    async fn feed_entries_page(
+        &self,
+        feed_id: Id,
+        limit: usize,
+    ) -> Result<MinifluxEntryPage, crate::error::AppError> {
+        self.get(&format!(
+            "/v1/feeds/{feed_id}/entries?order=id&direction=desc&limit={limit}"
         ))
         .await
     }
