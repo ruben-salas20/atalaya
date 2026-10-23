@@ -10,7 +10,7 @@ use crate::assets::FONT_FAMILY;
 use crate::palette::Palette;
 use crate::ui::entry_list::{EntryList, EntryListEvent};
 use crate::ui::feeds::FeedsScreen;
-use crate::ui::reader::Reader;
+use crate::ui::reader::{Reader, ReaderEvent};
 use crate::ui::settings::SettingsScreen;
 use crate::ui::sidebar::{Sidebar, SidebarEvent, Source};
 
@@ -71,6 +71,13 @@ impl AppView {
                     }
                 },
             ),
+            cx.subscribe(&reader, |this, _, event: &ReaderEvent, cx| match event {
+                ReaderEvent::Changed(entry) => {
+                    this.entry_list
+                        .update(cx, |list, cx| list.update_entry(entry, cx));
+                    this.sidebar.update(cx, |sidebar, cx| sidebar.reload(cx));
+                }
+            }),
             // Tema claro u oscuro según el sistema, también si cambia con la
             // app abierta.
             cx.observe_window_appearance(window, |_, window, cx| {

@@ -15,7 +15,6 @@ pub struct Palette {
     pub text3: Hsla,
     pub divider: Hsla,
     pub accent: Hsla,
-    #[allow(dead_code)] // Lo usa el selector «Español» y «Original» del paso 5.2.
     pub on_accent: Hsla,
 }
 

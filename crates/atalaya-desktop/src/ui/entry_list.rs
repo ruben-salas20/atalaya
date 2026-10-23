@@ -100,6 +100,16 @@ impl EntryList {
         });
     }
 
+    /// Cambia leído o guardado de una fila, sin recargar: la fila se queda
+    /// aunque ya no encaje en la vista, para no mover la lista al leer.
+    pub fn update_entry(&mut self, summary: &EntrySummary, cx: &mut Context<Self>) {
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.id == summary.id) {
+            entry.read = summary.read;
+            entry.starred = summary.starred;
+            cx.notify();
+        }
+    }
+
     fn select(&mut self, entry: EntrySummary, cx: &mut Context<Self>) {
         self.selected = Some(entry.id);
         cx.emit(EntryListEvent::Selected(entry));

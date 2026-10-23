@@ -1,7 +1,7 @@
-//! Rutas de lectura: menú lateral y lista. El paso 5.2 añade aquí abrir un
-//! artículo (`GET /api/entries/{id}`) y marcarlo (`PATCH`).
+//! Rutas de lectura: menú lateral, lista, abrir un artículo y marcarlo.
 
-use atalaya_api::{EntryPage, EntryQuery, Sidebar};
+use atalaya_api::{Entry, EntryPage, EntryQuery, EntrySummary, EntryUpdate, Id, Sidebar};
+use reqwest::Method;
 
 use super::{ApiClient, Result};
 
@@ -14,5 +14,15 @@ impl ApiClient {
     /// `GET /api/entries`.
     pub fn entries(&self, query: &EntryQuery) -> Result<EntryPage> {
         self.get_query("/api/entries", query)
+    }
+
+    /// `GET /api/entries/{id}`. Pone en marcha la traducción si hace falta.
+    pub fn entry(&self, id: Id) -> Result<Entry> {
+        self.get(&format!("/api/entries/{id}"))
+    }
+
+    /// `PATCH /api/entries/{id}`: leído o guardado.
+    pub fn update_entry(&self, id: Id, update: &EntryUpdate) -> Result<EntrySummary> {
+        self.send_json(Method::PATCH, &format!("/api/entries/{id}"), update)
     }
 }
