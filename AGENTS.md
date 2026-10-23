@@ -8,7 +8,7 @@ Cada sesión hace **una fase** del plan. Quien abre la sesión es el **orquestad
 
 ## Pasos del orquestador
 
-1. **Encuentra la fase en curso.** Es la primera fase de `docs/plan.md` con casillas `- [ ]`. Lee la primera línea de la Bitácora, al final del plan. Si existe la rama `fase-N` (local o en `origin`), cámbiate a ella y sigue desde la primera casilla sin marcar. Si no, créala desde `main` al día (`git pull`). Hecho cuando estás en `fase-N` y sabes qué pasos faltan.
+1. **Encuentra la fase en curso.** Si Rubén te dice qué fase hacer (por ejemplo, «haz la fase 5a»), es esa. Si no, es la primera fase de `docs/plan.md` con casillas `- [ ]`. Si su rama ya existe en `origin` y puede que otra sesión la esté llevando, pregunta a Rubén antes de seguir. Lee la primera línea de la Bitácora, al final del plan. Si existe la rama `fase-N` (local o en `origin`), cámbiate a ella y sigue desde la primera casilla sin marcar. Si no, créala desde `main` al día (`git pull`). Hecho cuando estás en `fase-N` y sabes qué pasos faltan.
 2. **Reparte.** Cada fase tiene una línea «Reparto» que dice qué pasos son del orquestador y cuáles pueden ir en paralelo. Antes de lanzar nada, pregunta a Rubén los datos que falten para toda la fase, de uno en uno y con una recomendación: los subagentes no pueden preguntarle. Hecho cuando cada paso pendiente tiene responsable y no falta ningún dato conocido.
 3. **Haz tus pasos.** Son los que tocan un recurso único: `ai-lab`, la GPU o el móvil (ver la tabla de abajo). Haz commit de cada uno en `fase-N` con su número. Hecho cuando cada paso tuyo cumple su «Hecho cuando», comprobado por ti.
 4. **Lanza los subagentes.** Antes, haz commit: el worktree parte del último commit. Lanza cada uno con la herramienta de agentes y aislamiento `worktree`, con este prompt: «Lee `<ruta absoluta del repo>/docs/subagente.md` y síguelo. Tu paso: N.M.», más los datos que Rubén dio en esta sesión. Lanza a la vez solo los pasos del mismo grupo del Reparto; el resto, de uno en uno. Hecho cuando cada subagente ha devuelto su informe.
@@ -18,6 +18,13 @@ Cada sesión hace **una fase** del plan. Quien abre la sesión es el **orquestad
 Si la sesión se va a cortar antes, apunta «a medias» en la Bitácora, haz commit y sube `fase-N`: la siguiente sesión sigue desde esa rama.
 
 Un subagente cuesta tokens y una fusión. Para un paso pequeño o que depende del anterior, hazlo tú.
+
+### Dos fases a la vez
+
+El plan dice qué fases pueden ir a la vez, cada una en su sesión y su rama. Para no chocar:
+
+- **Servicio y contrato:** si tu fase necesita cambiar `crates/atalaya-api` o `crates/atalaya-server`, haz ese cambio primero, en una rama `fase-N-servicio` y un PR propio a `main`. Lo fusiona Rubén; después lo despliegas tú. La otra sesión lo recoge con `git merge main` en su rama.
+- **`docs/plan.md`:** cada sesión marca solo las casillas de su fase. Al fusionar, el conflicto típico es la Bitácora: quédate con las dos líneas.
 
 ### Qué hace cada uno
 

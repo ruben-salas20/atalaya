@@ -1,6 +1,6 @@
 # Plan de Atalaya
 
-El plan va en fases, y cada fase en pasos. **Cada fase es una sesión**: un orquestador en la rama `fase-N` reparte los pasos entre subagentes y termina con un PR a `main`. Cada paso termina en algo que se comprueba. La fase en curso es la primera con casillas sin marcar. Cómo se trabaja está en `AGENTS.md`.
+El plan va en fases, y cada fase en pasos. **Cada fase es una sesión**: un orquestador en la rama `fase-N` reparte los pasos entre subagentes y termina con un PR a `main`. Cada paso termina en algo que se comprueba. La fase en curso es la primera con casillas sin marcar; las fases 3 y 5a pueden ir a la vez, cada una en su sesión. Cómo se trabaja está en `AGENTS.md`.
 
 La línea **Reparto** de cada fase dice qué pasos hace el orquestador y cuáles pueden ir en paralelo. Los pasos entre corchetes del mismo grupo van a la vez; los grupos, uno detrás de otro.
 
@@ -13,7 +13,8 @@ Los códigos entre corchetes, como [L4], son requisitos de `docs/PRD.md`.
 | 2. Servicio | API que entrega artículos traducidos y gestiona feeds |
 | 3. App de Android | Leer en el móvil todo lo anterior |
 | 4. Papers | Buscar en arXiv en español y guardar papers |
-| 5. App de PC | Lo mismo en el portátil, con GPUI |
+| 5a. App de PC: lectura y feeds | Leer y gestionar feeds en el portátil, con GPUI. Puede ir a la vez que la fase 3 |
+| 5b. App de PC: papers y sin conexión | Lo que falta del PC, cuando estén las fases 3 y 4 |
 | 6. Extras | Analizar paper completo, traducción local, chino y TranslateGemma |
 
 ---
@@ -91,16 +92,27 @@ En `android/`. La interfaz sigue `docs/diseño/maquetas.html`. Se prueba en el m
 
 ---
 
-## Fase 5. App de PC
+## Fase 5a. App de PC: lectura y feeds
 
-En `crates/atalaya-desktop`. La interfaz sigue `docs/diseño/maquetas-pc.html`.
+En `crates/atalaya-desktop`. La interfaz sigue `docs/diseño/maquetas-pc.html`. Solo depende del servicio de la fase 2, así que puede ir a la vez que la fase 3, en otra sesión y en la rama `fase-5a` (ver «Dos fases a la vez» en `AGENTS.md`).
 
-**Reparto:** 5.1 un subagente. Después, [5.2, 5.3, 5.4] en paralelo. 5.5 el orquestador, porque instala fuera del repo.
+**Reparto:** 5.1 un subagente. Después, [5.2, 5.4] en paralelo.
 
 - [ ] **5.1 Esqueleto con GPUI.** Versión de GPUI y `gpui-component` fijadas, ventana de tres columnas con la lista real. Hecho cuando la ventana muestra los artículos del servicio.
-- [ ] **5.2 Lectura.** Selector «Original», «Traduciendo…», leído y guardado [L1–L6]. Hecho cuando se lee y se guarda un artículo, y el cambio se ve en el móvil.
-- [ ] **5.3 Papers.** Pantalla 4 de las maquetas [P1–P6]. Hecho cuando se busca y se guarda un paper desde el PC.
+- [ ] **5.2 Lectura.** Selector «Original», «Traduciendo…», leído y guardado [L1–L6]. Hecho cuando se lee y se guarda un artículo, y el cambio se ve en Miniflux.
 - [ ] **5.4 Feeds y ajustes.** Pantallas 3 y 5 [F1–F6, S3]. Hecho cuando se añade un feed desde el PC.
+
+**Fase lista cuando:** en el portátil se leen, guardan y marcan artículos, y se gestionan los feeds, igual que con el servicio por `curl`.
+
+---
+
+## Fase 5b. App de PC: papers y sin conexión
+
+Empieza cuando estén hechas las fases 3 y 4: usa la búsqueda de papers de la fase 4 y la forma de sincronizar del paso 3.5. Rama `fase-5b`.
+
+**Reparto:** 5.3 un subagente. 5.5 el orquestador, porque instala fuera del repo.
+
+- [ ] **5.3 Papers.** Pantalla 4 de las maquetas [P1–P6]. Hecho cuando se busca y se guarda un paper desde el PC.
 - [ ] **5.5 Sin conexión e instalación.** Caché en disco, entrada en el lanzador de Omarchy con su icono [L8]. Hecho cuando la app abre desde el lanzador y muestra lo ya sincronizado sin red.
 
 **Fase lista cuando:** el PC y el móvil muestran lo mismo.
@@ -124,7 +136,7 @@ Cada paso termina en una propuesta para Rubén, no en código. Si la aprueba, se
 
 Una línea por sesión, la más reciente arriba. Se guardan las 10 últimas.
 
-- 2026-10-23 · fase 2 · hecha · Servicio desplegado en atalaya.rubensalas.dev: listas, feeds, títulos por webhook y texto completo traducidos. Pendiente: copia SQLite con sudo y monitor. Siguiente: fase 3, paso 3.1.
+- 2026-10-23 · fase 2 · hecha · Servicio desplegado en atalaya.rubensalas.dev: listas, feeds, títulos por webhook y texto completo traducidos; copia SQLite y monitor listos. Siguiente: fases 3 y 5a.
 - 2026-10-23 · fase 1 · hecha · Gemma 4 E4B medido y elegido (ADR 0009); Hunyuan y NLLB descartados; TranslateGemma pasa a extra 6.4. Siguiente: fase 2, paso 2.1.
 - 2026-10-23 · fase 0 · hecha · Miniflux 2.3.4 en rss.rubensalas.dev, con clave de API y el feed de Paul Graham completo. Siguiente: fase 1, paso 1.1.
 - 2026-10-23 · fase 0 · a medias · Hecho 0.1: diseño, PRD, ADR 0001–0008, plan y flujo con orquestador. Siguiente: 0.2, instalar Miniflux.
