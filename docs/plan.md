@@ -14,7 +14,7 @@ Los códigos entre corchetes, como [L4], son requisitos de `docs/PRD.md`.
 | 3. App de Android | Leer en el móvil todo lo anterior |
 | 4. Papers | Buscar en arXiv en español y guardar papers |
 | 5. App de PC | Lo mismo en el portátil, con GPUI |
-| 6. Extras | Analizar paper completo, traducción local y chino |
+| 6. Extras | Analizar paper completo, traducción local, chino y TranslateGemma |
 
 ---
 
@@ -40,7 +40,7 @@ Se mide solo Gemma 4 E4B, en su versión `gemma-4-e4b-rapido` (sin razonamiento 
 
 - [x] **1.1 Preparar el conjunto de prueba.** 20 textos reales en inglés: 10 noticias y 10 resúmenes de arXiv, más 20 títulos sueltos. Un script que manda cada texto a un modelo de llama-swap y apunta tiempos. Hecho cuando el script corre de principio a fin contra un modelo cualquiera.
 - [x] **1.2 Medir Gemma 4 E4B.** Ya está instalado en llama-swap como `gemma-4-e4b-rapido`. Medir memoria de GPU, tiempo de carga, segundos por título y por artículo. Hecho cuando sus medidas y sus 40 traducciones están en `docs/traduccion.md`.
-- [ ] **1.3 Decidir.** Rubén valora la calidad leyendo las traducciones; el agente presenta la tabla de medidas. Si la calidad basta, Gemma queda como modelo de traducción, con su `ttl` en `llama-swap/config.yaml`. Si no, se añaden al plan los pasos para medir otro modelo. Hecho cuando hay un ADR con la elección y el modelo responde por llama-swap, o cuando el plan tiene los pasos del siguiente candidato.
+- [x] **1.3 Decidir.** Rubén valora la calidad leyendo las traducciones; el agente presenta la tabla de medidas. Si la calidad basta, Gemma queda como modelo de traducción, con su `ttl` en `llama-swap/config.yaml`. Si no, se añaden al plan los pasos para medir otro modelo. Hecho cuando hay un ADR con la elección y el modelo responde por llama-swap, o cuando el plan tiene los pasos del siguiente candidato.
 
 **Fase lista cuando:** un modelo elegido traduce por llama-swap y sus medidas están documentadas.
 
@@ -111,11 +111,12 @@ En `crates/atalaya-desktop`. La interfaz sigue `docs/diseño/maquetas-pc.html`.
 
 Cada paso termina en una propuesta para Rubén, no en código. Si la aprueba, se escribe su ADR y se añaden pasos al plan.
 
-**Reparto:** 6.1 un subagente. 6.2 y 6.3 el orquestador, porque usan el móvil y la GPU.
+**Reparto:** 6.1 un subagente. 6.2, 6.3 y 6.4 el orquestador, de uno en uno, porque usan el móvil y la GPU.
 
 - [ ] **6.1 Paper completo.** Investigar la versión HTML de arXiv frente al PDF, y cómo mostrar fórmulas y tablas. Hecho cuando hay una propuesta con prueba sobre 3 papers reales.
 - [ ] **6.2 Traducción local de respaldo.** Investigar ML Kit en Android. Hecho cuando hay una propuesta con calidad y tamaño medidos.
 - [ ] **6.3 Chino al español.** Probar el modelo de la fase 1 con textos en chino. Hecho cuando hay una propuesta con 10 traducciones de ejemplo.
+- [ ] **6.4 TranslateGemma 4B.** Medir esta Gemma ajustada para traducir con el conjunto de `bench/traduccion/`, igual que Gemma 4 E4B en el paso 1.2 (ADR 0009). Hecho cuando hay una propuesta con sus medidas y sus traducciones junto a las de Gemma 4 E4B en `docs/traduccion.md`.
 
 ---
 
@@ -123,5 +124,6 @@ Cada paso termina en una propuesta para Rubén, no en código. Si la aprueba, se
 
 Una línea por sesión, la más reciente arriba. Se guardan las 10 últimas.
 
+- 2026-10-23 · fase 1 · hecha · Gemma 4 E4B medido y elegido (ADR 0009); Hunyuan y NLLB descartados; TranslateGemma pasa a extra 6.4. Siguiente: fase 2, paso 2.1.
 - 2026-10-23 · fase 0 · hecha · Miniflux 2.3.4 en rss.rubensalas.dev, con clave de API y el feed de Paul Graham completo. Siguiente: fase 1, paso 1.1.
 - 2026-10-23 · fase 0 · a medias · Hecho 0.1: diseño, PRD, ADR 0001–0008, plan y flujo con orquestador. Siguiente: 0.2, instalar Miniflux.
