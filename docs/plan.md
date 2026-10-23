@@ -74,7 +74,7 @@ En `android/`. La interfaz sigue `docs/diseño/maquetas.html`. Se prueba en el m
 - [x] **3.3 Lectura y gestos.** Selector «Original», aviso «Traduciendo…» y gestos [L4–L6]. Hecho cuando se lee un artículo traducido y los gestos cambian su estado en Miniflux.
 - [x] **3.4 Feeds.** Pantallas 9 a 11 [F1–F6]. Hecho cuando se añade un feed desde el móvil y sus artículos llegan.
 - [x] **3.5 Sin conexión y en segundo plano.** Room para guardar lo descargado y WorkManager para sincronizar [L8, S4]. Hecho cuando, en modo avión, se leen los artículos ya sincronizados.
-- [ ] **3.6 Uso real.** Rubén la usa un día. Se arreglan los fallos que encuentre. Hecho cuando Rubén confirma que la usa en lugar de su lector anterior.
+- [x] **3.6 Uso real.** Rubén la usa un día. Se arreglan los fallos que encuentre. Hecho cuando Rubén confirma que la usa en lugar de su lector anterior.
 
 **Fase lista cuando:** la app cubre los requisitos L, T, F y S en el móvil.
 
@@ -136,6 +136,7 @@ Cada paso termina en una propuesta para Rubén, no en código. Si la aprueba, se
 
 Una línea por sesión, la más reciente arriba. Se guardan las 10 últimas.
 
+- 2026-10-23 · fase 3 · hecha · App de Android: lista, lectura, gestos, feeds y sin conexión; compila en ai-lab. Servicio: títulos de feeds nuevos e imagen principal. Siguiente: fase 4.
 - 2026-10-23 · fase 2 · hecha · Servicio desplegado en atalaya.rubensalas.dev: listas, feeds, títulos por webhook y texto completo traducidos; copia SQLite y monitor listos. Siguiente: fases 3 y 5a.
 - 2026-10-23 · fase 1 · hecha · Gemma 4 E4B medido y elegido (ADR 0009); Hunyuan y NLLB descartados; TranslateGemma pasa a extra 6.4. Siguiente: fase 2, paso 2.1.
 - 2026-10-23 · fase 0 · hecha · Miniflux 2.3.4 en rss.rubensalas.dev, con clave de API y el feed de Paul Graham completo. Siguiente: fase 1, paso 1.1.
