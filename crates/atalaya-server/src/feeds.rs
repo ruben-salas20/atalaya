@@ -84,6 +84,7 @@ async fn create_feed(
         .create_feed(&feed_url, req.category_id, req.crawler)
         .await
         .map_err(remote_error)?;
+    state.translations.submit_new_feed(id);
     let feed = state.miniflux.feed(id).await?;
     Ok((
         StatusCode::CREATED,
