@@ -268,6 +268,7 @@ impl Translations {
         if is_summary_only(&entry) {
             match self.miniflux().fetch_full_content(id).await {
                 Ok(full) if visible_chars(&full) > visible_chars(&original) => {
+                    let full = with_feed_images(full, &entry.content);
                     original = full.clone();
                     fetched = Some(full);
                 }
@@ -452,6 +453,63 @@ pub fn is_summary_only(entry: &SourceEntry) -> bool {
     ]
     .iter()
     .any(|m| tail.contains(m))
+}
+
+/// El artículo completo con las imágenes del resumen del feed delante, si
+/// no trae ninguna. El extractor de Miniflux suele perder la imagen principal
+/// (en The Verge, siempre), y el resumen sí la trae.
+pub fn with_feed_images(full: String, summary: &str) -> String {
+    if full.contains("<img") {
+        return full;
+    }
+    let images = feed_images(summary);
+    if images.is_empty() {
+        full
+    } else {
+        images + &full
+    }
+}
+
+/// Las imágenes de un HTML: cada `<figure>` entera, con su pie, y cada
+/// `<img>` suelta dentro de un `<p>`.
+fn feed_images(html: &str) -> String {
+    let mut out = String::new();
+    let mut figure: Option<(String, usize)> = None;
+    for token in tokenize(html) {
+        if let Some((raw, depth)) = &mut figure {
+            raw.push_str(token.raw());
+            if let Token::Tag { name, closing, .. } = &token
+                && name == "figure"
+                && !token.is_self_closing()
+            {
+                if *closing {
+                    *depth -= 1;
+                } else {
+                    *depth += 1;
+                }
+            }
+            if *depth == 0 {
+                out.push_str(raw);
+                figure = None;
+            }
+            continue;
+        }
+        if let Token::Tag {
+            raw,
+            name,
+            closing: false,
+        } = &token
+        {
+            if name == "figure" && !token.is_self_closing() {
+                figure = Some(((*raw).to_owned(), 1));
+            } else if name == "img" {
+                out.push_str("<p>");
+                out.push_str(raw);
+                out.push_str("</p>");
+            }
+        }
+    }
+    out
 }
 
 /// Un trozo del HTML original.
@@ -957,6 +1015,22 @@ The Fi Ultra is the first dog tracker.
             content: content.into(),
             feed: SourceFeed { crawler },
         }
+    }
+
+    #[test]
+    fn adds_feed_images_when_full_content_has_none() {
+        let summary = r#"<figure><img src="a.jpg" alt=""><figcaption>Foto</figcaption></figure><p>Hi <img src="b.png"/></p>"#;
+        let full = "<p>Full text.</p>".to_owned();
+        assert_eq!(
+            with_feed_images(full, summary),
+            r#"<figure><img src="a.jpg" alt=""><figcaption>Foto</figcaption></figure><p><img src="b.png"/></p><p>Full text.</p>"#
+        );
+        let with_img = r#"<p><img src="c.jpg"></p>"#.to_owned();
+        assert_eq!(with_feed_images(with_img.clone(), summary), with_img);
+        assert_eq!(
+            with_feed_images("<p>x</p>".into(), "<p>sin fotos</p>"),
+            "<p>x</p>"
+        );
     }
 
     #[test]
