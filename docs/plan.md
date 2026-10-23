@@ -112,7 +112,7 @@ Empieza cuando estén hechas las fases 3 y 4: usa la búsqueda de papers de la f
 
 **Reparto:** 5.3 un subagente. 5.5 el orquestador, porque instala fuera del repo.
 
-- [ ] **5.3 Papers.** Pantalla 4 de las maquetas [P1–P6]. Hecho cuando se busca y se guarda un paper desde el PC.
+- [x] **5.3 Papers.** Pantalla 4 de las maquetas [P1–P6]. Hecho cuando se busca y se guarda un paper desde el PC.
 - [ ] **5.5 Sin conexión e instalación.** Caché en disco, entrada en el lanzador de Omarchy con su icono [L8]. Hecho cuando la app abre desde el lanzador y muestra lo ya sincronizado sin red.
 
 **Fase lista cuando:** el PC y el móvil muestran lo mismo.
@@ -136,6 +136,7 @@ Cada paso termina en una propuesta para Rubén, no en código. Si la aprueba, se
 
 Una línea por sesión, la más reciente arriba. Se guardan las 10 últimas.
 
+- 2026-10-23 · fase 5b · a medias · Papers en el PC, caché sin red e instalador con entrada en el lanzador. Falta que Rubén abra Atalaya desde el lanzador. Siguiente: marcar 5.5.
 - 2026-10-23 · fase 4 · hecha · Papers de arXiv: búsqueda traducida y por identificador, apertura y guardado; ocultos al dejar de guardarlos. Probado en el A35. Siguiente: fase 5b.
 - 2026-10-23 · fase 5a · hecha · App de PC con GPUI: lista, lectura traducida, leído y guardado, feeds, carpetas y ajustes. Pruebas en sway sin pantalla. Siguiente: fase 4.
 - 2026-10-23 · fase 3 · hecha · App de Android: lista, lectura, gestos, feeds y sin conexión; compila en ai-lab. Servicio: títulos de feeds nuevos e imagen principal. Siguiente: fase 4.
