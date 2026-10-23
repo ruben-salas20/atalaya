@@ -111,7 +111,7 @@ async fn title_of(state: &AppState, id: Id) -> Option<TitleInfo> {
 }
 
 /// Une un artículo de Miniflux con lo que se sabe de su título.
-fn summary(entry: &MinifluxEntry, title: Option<&TitleInfo>) -> EntrySummary {
+pub(crate) fn summary(entry: &MinifluxEntry, title: Option<&TitleInfo>) -> EntrySummary {
     let translated = title
         .and_then(|t| t.title.as_deref())
         .filter(|t| !t.trim().is_empty());
