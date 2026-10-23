@@ -3,9 +3,11 @@
 //! Dos tablas:
 //!
 //! - `entries`: el idioma de cada artículo de Miniflux que ya se vio.
-//! - `translations`: una fila por artículo y por campo traducido (`title`
-//!   ahora; `content` en el paso 2.4). `source_hash` es el SHA-256 del
-//!   original: si Miniflux cambia el texto, la traducción vieja deja de valer.
+//! - `translations`: una fila por artículo y por campo traducido (`title` o
+//!   `content`). `source_hash` es el SHA-256 del original tal como lo da
+//!   Miniflux: si cambia el texto, la traducción vieja deja de valer. Con
+//!   `content`, `original` guarda el artículo completo pedido a Miniflux
+//!   cuando el feed solo trae un resumen (L7).
 //!
 //! La conexión es una sola, tras un `Mutex`. Las consultas son cortas; para
 //! no bloquear el runtime de Tokio, se llaman con [`Store::call`].
@@ -24,14 +26,17 @@ use crate::translations::TitleInfo;
 
 /// Versión del esquema, en `PRAGMA user_version`. Cada cambio de tablas
 /// añade un paso a [`migrate`] y sube este número.
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 /// Campo traducido de un artículo.
 pub const FIELD_TITLE: &str = "title";
+pub const FIELD_CONTENT: &str = "content";
 
 /// Estado de una fila de `translations`.
 pub const STATE_DONE: &str = "done";
 pub const STATE_FAILED: &str = "failed";
+/// Solo `content`: la traducción empezó y no ha terminado.
+pub const STATE_PENDING: &str = "pending";
 
 #[derive(Clone)]
 pub struct Store {
@@ -109,7 +114,7 @@ fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
             CREATE TABLE translations (
                 entry_id    INTEGER NOT NULL REFERENCES entries (entry_id) ON DELETE CASCADE,
                 field       TEXT NOT NULL,          -- 'title' o 'content'
-                state       TEXT NOT NULL,          -- 'done', 'failed' (2.4 puede añadir 'pending')
+                state       TEXT NOT NULL,          -- 'done', 'failed' o, con 'content', 'pending'
                 source_hash TEXT NOT NULL,          -- SHA-256 en hexadecimal del original
                 text        TEXT,                   -- la traducción, con state = 'done'
                 model       TEXT,                   -- modelo de llama-swap que la hizo
@@ -118,6 +123,14 @@ fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
                 updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
                 PRIMARY KEY (entry_id, field)
             );",
+        )?;
+        tx.pragma_update(None, "user_version", 1)?;
+        tx.commit()?;
+    }
+    if version < 2 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "ALTER TABLE translations ADD COLUMN original TEXT;  -- artículo completo pedido a Miniflux (L7)",
         )?;
         tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         tx.commit()?;
@@ -229,6 +242,68 @@ pub fn save_translation(
     Ok(())
 }
 
+/// Idioma de un artículo: `None` si aún no se ha visto; `Some(None)` si se
+/// vio pero no se sabe.
+pub fn entry_lang(conn: &Connection, entry_id: Id) -> rusqlite::Result<Option<Option<String>>> {
+    conn.prepare_cached("SELECT lang FROM entries WHERE entry_id = ?1")?
+        .query_row([entry_id], |r| r.get(0))
+        .optional()
+}
+
+/// Lo guardado del texto completo de un artículo.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContentRow {
+    pub state: String,
+    pub source_hash: String,
+    pub text: Option<String>,
+    pub original: Option<String>,
+    /// Segundos desde el último cambio.
+    pub age_secs: i64,
+}
+
+pub fn content_row(conn: &Connection, entry_id: Id) -> rusqlite::Result<Option<ContentRow>> {
+    conn.prepare_cached(
+        "SELECT state, source_hash, text, original,
+                CAST(strftime('%s', 'now') AS INTEGER) - CAST(strftime('%s', updated_at) AS INTEGER)
+         FROM translations WHERE entry_id = ?1 AND field = 'content'",
+    )?
+    .query_row([entry_id], |r| {
+        Ok(ContentRow {
+            state: r.get(0)?,
+            source_hash: r.get(1)?,
+            text: r.get(2)?,
+            original: r.get(3)?,
+            age_secs: r.get(4)?,
+        })
+    })
+    .optional()
+}
+
+/// Marca el texto completo como en curso y guarda el artículo completo, si
+/// se pidió a Miniflux. Borra una traducción anterior de otro original.
+pub fn start_content(
+    conn: &Connection,
+    entry_id: Id,
+    hash: &str,
+    original: Option<&str>,
+) -> rusqlite::Result<()> {
+    conn.prepare_cached(
+        "INSERT INTO translations (entry_id, field, state, source_hash, original)
+         VALUES (?1, 'content', 'pending', ?2, ?3)
+         ON CONFLICT (entry_id, field) DO UPDATE SET
+            state = 'pending',
+            text = NULL,
+            error = NULL,
+            original = excluded.original,
+            attempts = CASE WHEN translations.source_hash = excluded.source_hash
+                            THEN translations.attempts ELSE 0 END,
+            source_hash = excluded.source_hash,
+            updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
+    )?
+    .execute(params![entry_id, hash, original])?;
+    Ok(())
+}
+
 /// Idioma y título traducido de los artículos que ya se vieron.
 pub fn titles(conn: &Connection, entry_ids: &[Id]) -> rusqlite::Result<HashMap<Id, TitleInfo>> {
     let mut stmt = conn.prepare_cached(
@@ -333,5 +408,65 @@ mod tests {
 
         // Si Miniflux cambia el título, la traducción vieja ya no vale.
         assert!(!is_translated(&c, 1, FIELD_TITLE, &source_hash("Hello!")).unwrap());
+    }
+
+    #[test]
+    fn content_keeps_the_fetched_original_until_the_source_changes() {
+        let store = Store::open_in_memory();
+        let mut c = store.conn.lock().unwrap();
+        record_langs(&mut c, &[seen(1, 10, Some("en"))]).unwrap();
+        assert_eq!(entry_lang(&c, 1).unwrap(), Some(Some("en".into())));
+        assert_eq!(entry_lang(&c, 2).unwrap(), None);
+        assert_eq!(content_row(&c, 1).unwrap(), None);
+
+        let hash = source_hash("<p>Resumen</p>");
+        start_content(&c, 1, &hash, Some("<p>Completo</p>")).unwrap();
+        let row = content_row(&c, 1).unwrap().unwrap();
+        assert_eq!(row.state, STATE_PENDING);
+        assert_eq!(row.original.as_deref(), Some("<p>Completo</p>"));
+        assert!(row.age_secs <= 1);
+
+        save_translation(&c, 1, FIELD_CONTENT, &hash, "m", &Ok("<p>Hola</p>".into())).unwrap();
+        let row = content_row(&c, 1).unwrap().unwrap();
+        assert_eq!(row.state, STATE_DONE);
+        assert_eq!(row.text.as_deref(), Some("<p>Hola</p>"));
+        assert_eq!(row.original.as_deref(), Some("<p>Completo</p>"));
+        // El título no se mezcla con el texto.
+        assert_eq!(titles(&c, &[1]).unwrap()[&1].title, None);
+
+        start_content(&c, 1, &source_hash("<p>Otro</p>"), None).unwrap();
+        let row = content_row(&c, 1).unwrap().unwrap();
+        assert_eq!(row.state, STATE_PENDING);
+        assert_eq!(row.text, None);
+        assert_eq!(row.original, None);
+    }
+
+    #[test]
+    fn migrates_a_version_1_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = Connection::open(dir.path().join("atalaya.db")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE entries (entry_id INTEGER PRIMARY KEY, feed_id INTEGER NOT NULL,
+                detected_lang TEXT, lang TEXT, updated_at TEXT NOT NULL DEFAULT '');
+             CREATE TABLE translations (entry_id INTEGER NOT NULL, field TEXT NOT NULL,
+                state TEXT NOT NULL, source_hash TEXT NOT NULL, text TEXT, model TEXT,
+                error TEXT, attempts INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT '', PRIMARY KEY (entry_id, field));
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+        drop(conn);
+        let store = Store::open(dir.path()).unwrap();
+        let c = store.conn.lock().unwrap();
+        let version: i32 = c
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        c.execute(
+            "INSERT INTO translations (entry_id, field, state, source_hash, original)
+             VALUES (1, 'content', 'pending', 'h', 'x')",
+            [],
+        )
+        .unwrap();
     }
 }

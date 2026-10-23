@@ -60,10 +60,16 @@ async fn open(
     let entry = state.miniflux.entry(id).await?;
     let title = title_of(&state, id).await;
     let (translation, translated_content) = state.translations.content(id).await;
+    // Si el feed solo trae un resumen, el artículo completo (L7).
+    let content = state
+        .translations
+        .original_content(id, &entry.content)
+        .await
+        .unwrap_or_else(|| entry.content.clone());
     Ok(Json(Entry {
         summary: summary(&entry, title.as_ref()),
         author: Some(entry.author).filter(|a| !a.trim().is_empty()),
-        content: entry.content,
+        content,
         translation,
         translated_content,
     }))

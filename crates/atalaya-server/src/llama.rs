@@ -16,6 +16,10 @@ const TITLE_PROMPT: &str = "Translate the following headline from English into L
 Use Spanish capitalization: capitalize only the first word and proper nouns, even if the English headline capitalizes every word. \
 Reply with the Spanish translation only, without notes, explanations or quotes.\n\n";
 
+/// Error de [`Llama::complete`] cuando la respuesta no cupo en `max_tokens`.
+/// No es un fallo de llama-swap: el mismo texto puede salir bien otra vez.
+pub const CUT_OFF: &str = "la respuesta se cortó por larga";
+
 #[derive(Debug, Clone)]
 pub struct Llama {
     http: reqwest::Client,
@@ -83,7 +87,7 @@ impl Llama {
             .next()
             .ok_or("llama-swap respondió sin texto")?;
         if choice.finish_reason.as_deref() == Some("length") {
-            return Err("la respuesta se cortó por larga".into());
+            return Err(CUT_OFF.into());
         }
         Ok(choice.message.content.unwrap_or_default())
     }

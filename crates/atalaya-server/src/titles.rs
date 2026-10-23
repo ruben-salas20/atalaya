@@ -5,7 +5,18 @@
 //! título traducido (cubre también un webhook perdido). Los dos pasan por
 //! [`Translations::submit_titles`], que guarda el idioma y pone en cola lo que
 //! hay que traducir. Un único trabajador vacía la cola de uno en uno, porque
-//! la GPU es una sola. Lo del webhook va antes que lo de la revisión.
+//! la GPU es una sola.
+//!
+//! La misma cola lleva los párrafos del texto completo (`content`, paso 2.4).
+//! El trabajador elige en este orden:
+//!
+//! 1. Títulos nuevos, del webhook: son cortos (menos de un segundo) y Rubén
+//!    los ve en la lista.
+//! 2. Párrafos de un artículo abierto o guardado: Rubén está esperando.
+//! 3. Títulos de la revisión al arrancar: pueden ser cientos y no corren prisa.
+//!
+//! Como cada párrafo es un trabajo aparte, un título nuevo espera como mucho
+//! a que termine el párrafo en curso, no el artículo entero.
 
 use std::{
     sync::Mutex,
@@ -17,6 +28,7 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 
 use crate::{
+    content::{self, SegmentJob},
     lang,
     miniflux::Miniflux,
     store::{self, FIELD_TITLE, SeenEntry},
@@ -24,7 +36,7 @@ use crate::{
 };
 
 /// Idiomas que se traducen al español (T1). El chino llega más adelante.
-const SOURCE_LANGS: &[&str] = &["en"];
+pub(crate) const SOURCE_LANGS: &[&str] = &["en"];
 
 /// Artículos por página al pedir la lista a Miniflux.
 const PAGE_SIZE: usize = 100;
@@ -69,14 +81,16 @@ pub struct TitleJob {
     title: String,
 }
 
-type Receivers = (
-    mpsc::UnboundedReceiver<TitleJob>,
-    mpsc::UnboundedReceiver<TitleJob>,
-);
+struct Receivers {
+    urgent: mpsc::UnboundedReceiver<TitleJob>,
+    content: mpsc::UnboundedReceiver<SegmentJob>,
+    backlog: mpsc::UnboundedReceiver<TitleJob>,
+}
 
-/// Las dos colas de títulos por traducir.
+/// Las colas de lo que hay que traducir: dos de títulos y una de párrafos.
 pub struct Queue {
     urgent: mpsc::UnboundedSender<TitleJob>,
+    content: mpsc::UnboundedSender<SegmentJob>,
     backlog: mpsc::UnboundedSender<TitleJob>,
     /// Los extremos de lectura, hasta que [`Translations::start`] los toma.
     receivers: Mutex<Option<Receivers>>,
@@ -85,11 +99,17 @@ pub struct Queue {
 impl Queue {
     pub fn new() -> Self {
         let (urgent, urgent_rx) = mpsc::unbounded_channel();
+        let (content, content_rx) = mpsc::unbounded_channel();
         let (backlog, backlog_rx) = mpsc::unbounded_channel();
         Self {
             urgent,
+            content,
             backlog,
-            receivers: Mutex::new(Some((urgent_rx, backlog_rx))),
+            receivers: Mutex::new(Some(Receivers {
+                urgent: urgent_rx,
+                content: content_rx,
+                backlog: backlog_rx,
+            })),
         }
     }
 }
@@ -103,13 +123,21 @@ impl Default for Queue {
 impl Translations {
     /// Pone en marcha el trabajador y la revisión al arrancar. Se llama una
     /// vez, desde `main`.
-    pub fn start(&self, miniflux: Miniflux) {
-        let Some((urgent, backlog)) = self.queue().receivers.lock().unwrap().take() else {
+    pub fn start(&self) {
+        let Some(receivers) = self.queue().receivers.lock().unwrap().take() else {
             tracing::warn!("la traducción de títulos ya estaba en marcha");
             return;
         };
-        tokio::spawn(self.clone().run_worker(urgent, backlog));
-        tokio::spawn(self.clone().backfill(miniflux));
+        tokio::spawn(self.clone().run_worker(receivers));
+        tokio::spawn(self.clone().backfill(self.miniflux().clone()));
+    }
+
+    /// Pone un párrafo del texto completo en cola. La respuesta llega por
+    /// `job.reply`.
+    pub(crate) fn queue_segment(&self, job: SegmentJob) {
+        // Solo falla si el trabajador terminó, y no termina nunca. Si pasara,
+        // `reply` se suelta y quien espera recibe un error.
+        let _ = self.queue().content.send(job);
     }
 
     /// Guarda el idioma de esos artículos y pone en cola los títulos que hay
@@ -168,19 +196,28 @@ impl Translations {
         n
     }
 
-    async fn run_worker(
-        self,
-        mut urgent: mpsc::UnboundedReceiver<TitleJob>,
-        mut backlog: mpsc::UnboundedReceiver<TitleJob>,
-    ) {
+    async fn run_worker(self, mut rx: Receivers) {
         loop {
-            let job = tokio::select! {
+            tokio::select! {
                 biased;
-                Some(job) = urgent.recv() => job,
-                Some(job) = backlog.recv() => job,
+                Some(job) = rx.urgent.recv() => self.translate_title(job).await,
+                Some(job) = rx.content.recv() => self.translate_segment(job).await,
+                Some(job) = rx.backlog.recv() => self.translate_title(job).await,
                 else => break,
-            };
-            self.translate_title(job).await;
+            }
+        }
+    }
+
+    async fn translate_segment(&self, job: SegmentJob) {
+        // El artículo ya falló o se abandonó: no gastar GPU en él.
+        if job.reply.is_closed() {
+            return;
+        }
+        let result = content::translate_segment(self.llama(), &job.html).await;
+        let failed = result.is_err();
+        let _ = job.reply.send(result);
+        if failed {
+            tokio::time::sleep(Duration::from_secs(2)).await;
         }
     }
 
@@ -307,8 +344,10 @@ mod tests {
     use crate::{llama::Llama, store::Store};
 
     fn translations() -> Translations {
-        let llama = Llama::new(reqwest::Client::new(), "http://127.0.0.1:9", "x");
-        Translations::new(Store::open_in_memory(), llama)
+        let http = reqwest::Client::new();
+        let llama = Llama::new(http.clone(), "http://127.0.0.1:9", "x");
+        let miniflux = Miniflux::new(http, "http://127.0.0.1:9", "x");
+        Translations::new(Store::open_in_memory(), llama, miniflux)
     }
 
     fn entry(id: Id, feed: Id, title: &str, lang: Option<&str>) -> NewEntry {
