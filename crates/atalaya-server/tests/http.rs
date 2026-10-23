@@ -5,21 +5,25 @@ use axum::{
 };
 use tower::ServiceExt;
 
-fn test_app() -> axum::Router {
-    app(AppState::new(Config {
+/// La carpeta temporal vive lo que la prueba: al soltarla se borra la base.
+fn test_app() -> (axum::Router, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let router = app(AppState::new(Config {
         api_key: "secreta".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
-        data_dir: std::env::temp_dir(),
+        data_dir: dir.path().to_owned(),
         miniflux_url: "http://127.0.0.1:9".into(),
         miniflux_api_key: "x".into(),
         miniflux_webhook_secret: String::new(),
         llama_url: "http://127.0.0.1:9".into(),
         llama_model: "x".into(),
-    }))
+    }));
+    (router, dir)
 }
 
 async fn status(req: Request<Body>) -> StatusCode {
-    test_app().oneshot(req).await.unwrap().status()
+    let (router, _dir) = test_app();
+    router.oneshot(req).await.unwrap().status()
 }
 
 #[tokio::test]

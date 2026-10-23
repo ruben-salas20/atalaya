@@ -19,6 +19,7 @@ async fn main() {
     };
     let bind = config.bind;
     let state = AppState::new(config);
+    state.translations.start(state.miniflux.clone());
 
     let listener = tokio::net::TcpListener::bind(bind)
         .await

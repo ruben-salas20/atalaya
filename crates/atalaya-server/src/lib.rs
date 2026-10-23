@@ -4,14 +4,21 @@ pub mod entries;
 pub mod error;
 pub mod feed_stats;
 pub mod feeds;
+pub mod lang;
+pub mod llama;
 pub mod miniflux;
 pub mod sidebar;
+pub mod store;
+pub mod titles;
 pub mod translations;
+pub mod webhook;
 
 use atalaya_api::{Health, Status};
 use axum::{Json, Router, extract::State, middleware, routing::get};
 
-use crate::{config::Config, miniflux::Miniflux, translations::Translations};
+use crate::{
+    config::Config, llama::Llama, miniflux::Miniflux, store::Store, translations::Translations,
+};
 
 /// Lo que comparten todos los handlers.
 #[derive(Clone)]
@@ -29,11 +36,13 @@ impl AppState {
             .build()
             .expect("no se pudo crear el cliente HTTP");
         let miniflux = Miniflux::new(http.clone(), &config.miniflux_url, &config.miniflux_api_key);
+        let store = Store::open(&config.data_dir).unwrap_or_else(|e| panic!("{e}"));
+        let llama = Llama::new(http.clone(), &config.llama_url, &config.llama_model);
         Self {
             config,
             http,
             miniflux,
-            translations: Translations::new(),
+            translations: Translations::new(store, llama),
         }
     }
 }
@@ -54,6 +63,7 @@ pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .nest("/api", api)
+        .merge(webhook::routes())
         .with_state(state)
 }
 
