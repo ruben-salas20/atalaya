@@ -375,10 +375,11 @@ mod tests {
         use axum::{body::Body, http::Request};
         use tower::ServiceExt;
 
+        let dir = tempfile::tempdir().unwrap();
         let app = crate::app(AppState::new(crate::config::Config {
             api_key: "secreta".into(),
             bind: "127.0.0.1:0".parse().unwrap(),
-            data_dir: std::env::temp_dir(),
+            data_dir: dir.path().to_owned(),
             miniflux_url: "http://127.0.0.1:9".into(),
             miniflux_api_key: "x".into(),
             miniflux_webhook_secret: String::new(),
