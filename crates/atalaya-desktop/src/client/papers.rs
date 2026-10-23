@@ -25,7 +25,7 @@ impl ApiClient {
     /// `POST /api/papers/{arxiv_id}/save`: lo lleva a Guardados (P5).
     pub fn save_paper(&self, arxiv_id: &str) -> Result<EntrySummary> {
         let path = format!("/api/papers/{}/save", path_id(arxiv_id));
-        super::read_json(self.request(Method::POST, &path).send())
+        Ok(super::read_json(self.request(Method::POST, &path).send())?)
     }
 }
 
