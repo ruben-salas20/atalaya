@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -45,19 +44,30 @@ fun EntryRow(entry: EntrySummary, now: Instant, onClick: () -> Unit, modifier: M
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    "${entry.feedTitle} · ${shortAge(entry.publishedAt, now)}",
-                    fontSize = 13.sp,
-                    color = metaColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                if (entry.starred) {
-                    Icon(Icons.Filled.Bookmark, contentDescription = "Guardado", tint = metaColor, modifier = Modifier.size(14.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                // La fuente se corta con «…» antes que la hora; la etiqueta queda siempre a la derecha.
+                Row(
+                    Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        entry.feedTitle,
+                        fontSize = 13.sp,
+                        color = metaColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Text("· ${shortAge(entry.publishedAt, now)}", fontSize = 13.sp, color = metaColor, maxLines = 1)
+                    if (entry.starred) {
+                        Icon(Icons.Filled.Bookmark, contentDescription = "Guardado", tint = metaColor, modifier = Modifier.size(14.dp))
+                    }
                 }
-                Spacer(Modifier.weight(1f))
                 langBadge(entry.lang)?.let { LangBadge(it) }
             }
         }

@@ -3,8 +3,11 @@
 FROM eclipse-temurin:21-jdk-noble
 
 ARG CMDLINE_TOOLS=16111833
+# ANDROID_USER_HOME vive en el volumen de la caché: así la clave de depuración
+# es siempre la misma y el móvil acepta cada APK nuevo como actualización.
 ENV ANDROID_HOME=/opt/android-sdk \
-    GRADLE_USER_HOME=/gradle
+    GRADLE_USER_HOME=/gradle \
+    ANDROID_USER_HOME=/gradle/android
 ENV PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
 
 RUN apt-get update \
