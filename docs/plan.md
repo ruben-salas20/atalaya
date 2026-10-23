@@ -38,7 +38,7 @@ Los textos y scripts de medida van en `bench/traduccion/`; los resultados, en `d
 
 Se mide solo Gemma 4 E4B, en su versión `gemma-4-e4b-rapido` (sin razonamiento previo y con MTP). Si su calidad no basta, se añaden pasos para probar otro modelo; el siguiente candidato es Hunyuan-MT 7B en Q4_K_M.
 
-- [ ] **1.1 Preparar el conjunto de prueba.** 20 textos reales en inglés: 10 noticias y 10 resúmenes de arXiv, más 20 títulos sueltos. Un script que manda cada texto a un modelo de llama-swap y apunta tiempos. Hecho cuando el script corre de principio a fin contra un modelo cualquiera.
+- [x] **1.1 Preparar el conjunto de prueba.** 20 textos reales en inglés: 10 noticias y 10 resúmenes de arXiv, más 20 títulos sueltos. Un script que manda cada texto a un modelo de llama-swap y apunta tiempos. Hecho cuando el script corre de principio a fin contra un modelo cualquiera.
 - [ ] **1.2 Medir Gemma 4 E4B.** Ya está instalado en llama-swap como `gemma-4-e4b-rapido`. Medir memoria de GPU, tiempo de carga, segundos por título y por artículo. Hecho cuando sus medidas y sus 40 traducciones están en `docs/traduccion.md`.
 - [ ] **1.3 Decidir.** Rubén valora la calidad leyendo las traducciones; el agente presenta la tabla de medidas. Si la calidad basta, Gemma queda como modelo de traducción, con su `ttl` en `llama-swap/config.yaml`. Si no, se añaden al plan los pasos para medir otro modelo. Hecho cuando hay un ADR con la elección y el modelo responde por llama-swap, o cuando el plan tiene los pasos del siguiente candidato.
 
