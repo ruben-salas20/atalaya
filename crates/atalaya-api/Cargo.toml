@@ -1,0 +1,13 @@
+[package]
+name = "atalaya-api"
+description = "Tipos de la API de Atalaya, compartidos por el servicio y la app de PC"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+chrono.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

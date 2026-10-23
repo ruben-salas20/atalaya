@@ -1,0 +1,8 @@
+target
+android
+docs
+bench
+assets
+.git
+.claude
+.playwright-mcp
