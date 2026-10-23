@@ -1,0 +1,12 @@
+[package]
+name = "raton-virtual"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Fuera del workspace de Atalaya: es una herramienta de pruebas, no parte de la app.
+[workspace]
+
+[dependencies]
+wayland-client = "=0.31.15"
+wayland-protocols-wlr = { version = "=0.3.12", features = ["client"] }
