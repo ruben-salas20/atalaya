@@ -10,6 +10,7 @@ import dev.rubensalas.atalaya.data.api.Id
 import dev.rubensalas.atalaya.data.api.Sidebar
 import dev.rubensalas.atalaya.data.api.View
 import dev.rubensalas.atalaya.data.list.ListRepository
+import dev.rubensalas.atalaya.data.list.adjusted
 import dev.rubensalas.atalaya.data.settings.SwipeAction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -46,6 +47,8 @@ data class ListUiState(
     val refreshing: Boolean = false,
     val loadingMore: Boolean = false,
     val error: String? = null,
+    /** Sin conexión: se ve lo guardado en el móvil (L8). */
+    val offline: Boolean = false,
 ) {
     val canLoadMore: Boolean get() = entries.size < total
 
@@ -80,21 +83,6 @@ fun ListUiState.withFlags(id: Id, read: Boolean, starred: Boolean): ListUiState 
     )
 }
 
-private fun Sidebar.adjusted(feedId: Id, unreadDelta: Int, starredDelta: Int): Sidebar {
-    fun Long.plus(d: Int) = (this + d).coerceAtLeast(0)
-    return copy(
-        unread = unread.plus(unreadDelta),
-        starred = starred.plus(starredDelta),
-        categories = categories.map { cat ->
-            if (cat.feeds.none { it.id == feedId }) cat
-            else cat.copy(
-                unread = cat.unread.plus(unreadDelta),
-                feeds = cat.feeds.map { if (it.id == feedId) it.copy(unread = it.unread.plus(unreadDelta)) else it },
-            )
-        },
-    )
-}
-
 /** Carga la lista y el menú lateral (pantallas 1 y 2). */
 class ListViewModel(private val repo: ListRepository) : ViewModel() {
     private val _state = MutableStateFlow(ListUiState())
@@ -111,7 +99,9 @@ class ListViewModel(private val repo: ListRepository) : ViewModel() {
 
     /**
      * Vuelve a pedir el menú y la lista. Pide tantos artículos como ya se ven,
-     * para no perder lo cargado al volver de un artículo.
+     * para no perder lo cargado al volver de un artículo. Si la lista está
+     * vacía, enseña antes lo guardado en el móvil. Sin conexión, se queda con
+     * lo guardado y lo avisa una vez (L8).
      */
     fun refresh(pulled: Boolean = false) {
         loadJob?.cancel()
@@ -122,6 +112,7 @@ class ListViewModel(private val repo: ListRepository) : ViewModel() {
             it.copy(loading = it.entries.isEmpty(), refreshing = pulled, loadingMore = false, error = null)
         }
         loadJob = viewModelScope.launch {
+            if (_state.value.entries.isEmpty()) showCached(selection, limit, offline = false)
             try {
                 val (sidebar, page) = coroutineScope {
                     val sidebar = async { repo.sidebar() }
@@ -135,25 +126,54 @@ class ListViewModel(private val repo: ListRepository) : ViewModel() {
                         total = page.total,
                         loading = false,
                         refreshing = false,
+                        offline = false,
                     )
                 }
                 repo.markSynced()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ApiException) {
+                if (e.status == null && showCached(selection, limit, offline = true)) return@launch
                 _state.update { it.copy(loading = false, refreshing = false, error = errorMessage(e)) }
             }
         }
     }
 
-    /** Pide la página siguiente cuando la lista llega al final. */
+    /** Enseña lo guardado en el móvil. Devuelve false si no hay nada guardado. */
+    private suspend fun showCached(selection: ListSelection, limit: Int, offline: Boolean): Boolean {
+        val page = repo.cachedEntries(selection.query(limit, 0)) ?: return false
+        // Antes de la red, una lista vacía solo haría parpadear el «no hay artículos».
+        if (!offline && page.entries.isEmpty()) return false
+        val sidebar = repo.cachedSidebar()
+        _state.update {
+            it.copy(
+                sidebar = sidebar ?: it.sidebar,
+                entries = page.entries,
+                total = page.total,
+                loading = false,
+                refreshing = if (offline) false else it.refreshing,
+                offline = offline,
+                // El aviso va abajo y solo con artículos en pantalla; si no, taparía la lista vacía.
+                error = if (offline && !it.offline && page.entries.isNotEmpty()) OFFLINE_NOTICE else it.error,
+            )
+        }
+        return true
+    }
+
+    /** Pide la página siguiente cuando la lista llega al final. Sin conexión, la saca del móvil. */
     fun loadMore() {
         val current = _state.value
         if (current.loading || current.loadingMore || !current.canLoadMore) return
         _state.update { it.copy(loadingMore = true) }
         moreJob = viewModelScope.launch {
+            val query = current.selection.query(PAGE_SIZE, current.entries.size)
             try {
-                val page = repo.entries(current.selection.query(PAGE_SIZE, current.entries.size))
+                val page = try {
+                    repo.entries(query)
+                } catch (e: ApiException) {
+                    if (e.status != null) throw e
+                    repo.cachedEntries(query) ?: throw e
+                }
                 _state.update { s ->
                     val known = s.entries.mapTo(HashSet()) { it.id }
                     s.copy(
@@ -203,5 +223,6 @@ class ListViewModel(private val repo: ListRepository) : ViewModel() {
     companion object {
         const val PAGE_SIZE = 50
         const val MAX_PAGE_SIZE = 200
+        const val OFFLINE_NOTICE = "Sin conexión. Ves lo guardado en el móvil."
     }
 }

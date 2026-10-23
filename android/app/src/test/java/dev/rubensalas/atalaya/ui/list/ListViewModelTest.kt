@@ -59,6 +59,10 @@ class ListViewModelTest {
         override suspend fun markSynced() {
             synced++
         }
+
+        var cache: EntryPage? = null
+        override suspend fun cachedSidebar() = cache?.let { SIDEBAR }
+        override suspend fun cachedEntries(query: EntryQuery) = cache
     }
 
     private val repo = FakeRepo()
@@ -170,6 +174,35 @@ class ListViewModelTest {
         vm.refresh()
         vm.swipe(vm.state.value.entries[0], SwipeAction.None)
         assertTrue(repo.updates.isEmpty())
+    }
+
+    @Test
+    fun withoutNetworkShowsWhatThePhoneKeptAndSaysSoOnce() {
+        repo.fail = ApiException(null, "No se pudo conectar con el servicio")
+        repo.cache = EntryPage(2, listOf(entry(5), entry(6)))
+        vm.refresh()
+        val s = vm.state.value
+        assertEquals(listOf(5L, 6L), s.entries.map { it.id })
+        assertTrue(s.offline)
+        assertEquals(ListViewModel.OFFLINE_NOTICE, s.error)
+        assertEquals(0, repo.synced)
+        vm.dismissError()
+        vm.refresh()
+        assertNull("el aviso no se repite", vm.state.value.error)
+
+        repo.fail = null
+        vm.refresh()
+        assertFalse(vm.state.value.offline)
+        assertEquals(1, repo.synced)
+    }
+
+    @Test
+    fun wrongKeyDoesNotFallBackToThePhone() {
+        repo.fail = ApiException(401, "Unauthorized")
+        repo.cache = EntryPage(1, listOf(entry(5)))
+        vm.refresh()
+        assertEquals("La clave no es correcta. Revísala en Ajustes.", vm.state.value.error)
+        assertFalse(vm.state.value.offline)
     }
 
     private companion object {
