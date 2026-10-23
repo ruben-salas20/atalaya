@@ -99,6 +99,13 @@ pub struct Saved {
     pub created: bool,
 }
 
+/// Dónde están los papers en Miniflux: su feed y la carpeta de ese feed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PapersPlace {
+    pub feed: Id,
+    pub category: Id,
+}
+
 impl Papers {
     /// El feed «Papers guardados». Con `create`, lo crea si no existe.
     pub async fn saved_feed(&self, create: bool) -> AppResult<Option<Id>> {
@@ -109,12 +116,40 @@ impl Papers {
         let miniflux = self.translations().miniflux();
         let found = miniflux.feed_by_url(FEED_URL).await?;
         let id = match found {
-            Some(id) => id,
+            Some(id) => {
+                // Los feeds creados antes de ocultarlos siguen visibles.
+                if let Err(e) = miniflux.hide_globally(id).await {
+                    tracing::warn!("no se pudo ocultar el feed de papers: {}", e.message);
+                }
+                id
+            }
             None if create => miniflux.create_papers_feed().await?,
             None => return Ok(None),
         };
         *cached = Some(id);
         Ok(Some(id))
+    }
+
+    /// El feed de papers y su carpeta, o `None` si aún no existe o Miniflux
+    /// falla. Se pregunta cada vez porque Rubén puede moverlo de carpeta.
+    pub async fn place(&self) -> Option<PapersPlace> {
+        let feed = match self.saved_feed(false).await {
+            Ok(feed) => feed?,
+            Err(e) => {
+                tracing::warn!("no se pudo buscar el feed de papers: {}", e.message);
+                return None;
+            }
+        };
+        match self.translations().miniflux().feed_category(feed).await {
+            Ok(category) => Some(PapersPlace { feed, category }),
+            Err(e) => {
+                if e.status == axum::http::StatusCode::NOT_FOUND {
+                    *self.saved_feed_cache().lock().await = None;
+                }
+                tracing::warn!("no se pudo leer el feed de papers: {}", e.message);
+                None
+            }
+        }
     }
 
     /// Papers guardados (marcados como guardados en Miniflux), por
@@ -270,6 +305,32 @@ impl Papers {
 }
 
 impl Miniflux {
+    /// Saca el feed de «Todos» y «Sin leer»: sus papers se ven en Guardados y
+    /// en el propio feed.
+    async fn hide_globally(&self, feed: Id) -> AppResult<()> {
+        let _: serde_json::Value = self
+            .send_json(
+                Method::PUT,
+                &format!("/v1/feeds/{feed}"),
+                &json!({ "hide_globally": true }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn feed_category(&self, feed: Id) -> AppResult<Id> {
+        #[derive(Deserialize)]
+        struct Feed {
+            category: Category,
+        }
+        #[derive(Deserialize)]
+        struct Category {
+            id: Id,
+        }
+        let f: Feed = self.get(&format!("/v1/feeds/{feed}")).await?;
+        Ok(f.category.id)
+    }
+
     async fn feed_by_url(&self, url: &str) -> AppResult<Option<Id>> {
         #[derive(Deserialize)]
         struct Feed {
@@ -321,6 +382,7 @@ impl Miniflux {
             "site_url": "https://arxiv.org/",
             "disabled": true,
             "crawler": true,
+            "hide_globally": true,
         });
         let _: serde_json::Value = self
             .send_json(

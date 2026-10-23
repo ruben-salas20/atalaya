@@ -14,10 +14,11 @@ pub fn routes() -> Router<AppState> {
 
 async fn sidebar(State(state): State<AppState>) -> AppResult<Json<Sidebar>> {
     let mf = &state.miniflux;
+    let papers = state.papers.place().await;
     let (total, unread, starred, categories, feeds, counters) = tokio::try_join!(
-        mf.count(View::All),
-        mf.count(View::Unread),
-        mf.count(View::Starred),
+        mf.count(View::All, papers),
+        mf.count(View::Unread, papers),
+        mf.count(View::Starred, papers),
         mf.sidebar_categories(),
         mf.sidebar_feeds(),
         mf.feed_counters(),
