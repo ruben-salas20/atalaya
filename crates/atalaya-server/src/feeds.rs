@@ -82,13 +82,25 @@ async fn create_feed(
     Json(req): Json<NewFeed>,
 ) -> AppResult<(StatusCode, Json<Feed>)> {
     let feed_url = normalize_url(&req.feed_url)?;
-    let id = state
-        .miniflux
-        .create_feed(&feed_url, req.category_id, req.crawler)
+    // Miniflux descarga cada artículo antes de responder y puede tardar más de
+    // lo que espera la app. Si la app corta, axum suelta este handler: en una
+    // tarea aparte, el feed nuevo llega igual a la cola de títulos (#34).
+    let creation = tokio::spawn({
+        let state = state.clone();
+        async move {
+            let id = state
+                .miniflux
+                .create_feed(&feed_url, req.category_id, req.crawler)
+                .await
+                .map_err(remote_error)?;
+            state.stats.clear();
+            state.translations.submit_new_feed(id);
+            Ok::<_, AppError>(id)
+        }
+    });
+    let id = creation
         .await
-        .map_err(remote_error)?;
-    state.stats.clear();
-    state.translations.submit_new_feed(id);
+        .map_err(|e| AppError::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
     let feed = state.miniflux.feed(id).await?;
     Ok((
         StatusCode::CREATED,

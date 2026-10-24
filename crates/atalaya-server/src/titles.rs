@@ -153,25 +153,41 @@ impl Translations {
     pub fn submit_new_feed(&self, feed_id: Id) {
         let this = self.clone();
         tokio::spawn(async move {
-            match this.miniflux().feed_entries_page(feed_id, PAGE_SIZE).await {
-                Ok(page) => {
-                    let entries = page
-                        .entries
-                        .into_iter()
-                        .map(|e| {
-                            let content = e.content.unwrap_or_default();
-                            NewEntry::new(e.id, e.feed_id, e.title, &content)
-                        })
-                        .collect();
-                    let queued = this.submit_titles(entries, Priority::Urgent).await;
-                    tracing::info!(feed = feed_id, "feed nuevo: {queued} títulos en cola");
+            let mut entries = Vec::new();
+            loop {
+                let offset = entries.len();
+                let page = match this
+                    .miniflux()
+                    .feed_entries_page(feed_id, PAGE_SIZE, offset)
+                    .await
+                {
+                    Ok(page) => page,
+                    Err(e) => {
+                        tracing::warn!(
+                            feed = feed_id,
+                            "feed nuevo: no se pudieron leer sus artículos: {}",
+                            e.message
+                        );
+                        break;
+                    }
+                };
+                let got = page.entries.len();
+                entries.extend(page.entries.into_iter().map(|e| {
+                    let content = e.content.unwrap_or_default();
+                    NewEntry::new(e.id, e.feed_id, e.title, &content)
+                }));
+                if got < PAGE_SIZE {
+                    break;
                 }
-                Err(e) => tracing::warn!(
-                    feed = feed_id,
-                    "feed nuevo: no se pudieron leer sus artículos: {}",
-                    e.message
-                ),
             }
+            // Si una página falla, lo leído hasta ahí se manda igual: el resto
+            // lo recoge la revisión periódica.
+            let seen = entries.len();
+            let queued = this.submit_titles(entries, Priority::Urgent).await;
+            tracing::info!(
+                feed = feed_id,
+                "feed nuevo: {seen} artículos vistos, {queued} títulos en cola"
+            );
         });
     }
 
@@ -359,14 +375,15 @@ impl Miniflux {
         .await
     }
 
-    /// Los artículos más nuevos de un feed.
+    /// Una página de artículos de un feed, del más nuevo al más viejo.
     async fn feed_entries_page(
         &self,
         feed_id: Id,
         limit: usize,
+        offset: usize,
     ) -> Result<MinifluxEntryPage, crate::error::AppError> {
         self.get(&format!(
-            "/v1/feeds/{feed_id}/entries?order=id&direction=desc&limit={limit}"
+            "/v1/feeds/{feed_id}/entries?order=id&direction=desc&limit={limit}&offset={offset}"
         ))
         .await
     }
