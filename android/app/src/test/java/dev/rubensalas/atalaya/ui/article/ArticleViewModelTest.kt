@@ -7,6 +7,7 @@ import dev.rubensalas.atalaya.data.api.EntryQuery
 import dev.rubensalas.atalaya.data.api.EntrySummary
 import dev.rubensalas.atalaya.data.api.EntryUpdate
 import dev.rubensalas.atalaya.data.api.Id
+import dev.rubensalas.atalaya.data.api.MarkAllReadQuery
 import dev.rubensalas.atalaya.data.api.Sidebar
 import dev.rubensalas.atalaya.data.api.TranslationState
 import dev.rubensalas.atalaya.data.list.ListRepository
@@ -38,6 +39,7 @@ class ArticleViewModelTest {
 
         override suspend fun sidebar(): Sidebar = throw UnsupportedOperationException()
         override suspend fun entries(query: EntryQuery): EntryPage = throw UnsupportedOperationException()
+        override suspend fun markAllRead(scope: MarkAllReadQuery) = Unit
         override suspend fun markSynced() = Unit
 
         override suspend fun entry(id: Id): Entry {

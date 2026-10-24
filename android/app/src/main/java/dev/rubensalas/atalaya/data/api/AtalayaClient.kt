@@ -49,12 +49,20 @@ class AtalayaClient(
             query.categoryId?.let { addQueryParameter("category_id", it.toString()) }
             query.limit?.let { addQueryParameter("limit", it.toString()) }
             query.offset?.let { addQueryParameter("offset", it.toString()) }
+            query.q?.let { addQueryParameter("q", it) }
         }
 
     suspend fun entry(id: Id): Entry = get("api/entries/$id")
 
     suspend fun updateEntry(id: Id, update: EntryUpdate): EntrySummary =
         send("PATCH", "api/entries/$id", body(update))
+
+    suspend fun markAllRead(scope: MarkAllReadQuery) {
+        execute("POST", "api/entries/mark-all-as-read", null) {
+            scope.feedId?.let { addQueryParameter("feed_id", it.toString()) }
+            scope.categoryId?.let { addQueryParameter("category_id", it.toString()) }
+        }
+    }
 
     suspend fun discoverFeeds(url: String): List<DiscoveredFeed> =
         send("POST", "api/feeds/discover", body(DiscoverRequest(url)))

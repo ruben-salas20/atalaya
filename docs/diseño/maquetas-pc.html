@@ -244,13 +244,14 @@
 <!-- 1. Principal -->
 <section class="screen-section">
   <h2>1. Vista principal, con un artículo traducido</h2>
-  <p>El artículo seleccionado se marca con una franja a la izquierda y se lee en la columna derecha. El texto ocupa como mucho unos 640 píxeles de ancho, para que las líneas no sean demasiado largas en una pantalla ancha.</p>
+  <p>El artículo seleccionado se marca con una franja a la izquierda y se lee en la columna derecha. El texto ocupa como mucho unos 640 píxeles de ancho, para que las líneas no sean demasiado largas en una pantalla ancha. La lupa de la lista, o <kbd>Ctrl+F</kbd>, abre un campo de texto que filtra la lista por título al escribir, en español o en el original y sin tener en cuenta tildes ni mayúsculas. <kbd>Esc</kbd> la cierra.</p>
   <div class="pair" data-screen>
     <div class="win" data-active="unread">
       <slot-side></slot-side>
       <section class="list">
         <div class="bar">
           <div class="title">Sin leer<small>21</small></div>
+          <div class="icon-btn"><svg class="i"><use href="#search"/></svg></div>
           <div class="icon-btn"><svg class="i"><use href="#refresh"/></svg></div>
           <div class="icon-btn"><svg class="i"><use href="#done-all"/></svg></div>
         </div>

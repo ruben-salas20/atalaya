@@ -3,7 +3,7 @@
 
 use atalaya_api::View;
 use gpui::prelude::*;
-use gpui::{Context, Entity, FocusHandle, Subscription, Window, div, px};
+use gpui::{Context, Entity, FocusHandle, KeyDownEvent, Subscription, Window, div, px};
 use gpui_component::Theme;
 
 use crate::assets::FONT_FAMILY;
@@ -38,9 +38,6 @@ pub struct AppView {
     panels: Panels,
     /// Ancho de la ventana en el último cambio de tamaño.
     width: f32,
-    /// Sin foco, GPUI solo manda las teclas a la raíz de la ventana y los
-    /// atajos de los paneles no llegarían aquí.
-    focus: FocusHandle,
     sidebar: Entity<Sidebar>,
     entry_list: Entity<EntryList>,
     reader: Entity<Reader>,
@@ -48,6 +45,9 @@ pub struct AppView {
     paper_search: Entity<PaperSearch>,
     paper_reader: Entity<PaperReader>,
     settings: Entity<SettingsScreen>,
+    /// Foco de la ventana entera. Sin un foco, GPUI no entrega las teclas a
+    /// la vista y no llegarían Ctrl+F ni los atajos de los paneles.
+    focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -62,6 +62,8 @@ impl AppView {
         let settings = cx.new(|cx| SettingsScreen::new(window, cx));
         let paper_search = cx.new(|cx| PaperSearch::new(window, cx));
         let paper_reader = cx.new(|_| PaperReader::default());
+        let focus = cx.focus_handle();
+        window.focus(&focus, cx);
 
         let subscriptions = vec![
             cx.observe_global::<FontSize>(|this, cx| {
@@ -160,10 +162,7 @@ impl AppView {
         ];
 
         let saved = Settings::read().unwrap_or_default();
-        let focus = cx.focus_handle();
-        window.focus(&focus, cx);
         Self {
-            focus,
             screen: Screen::Reading,
             panels: Panels::new(saved.sidebar_folded, saved.list_folded),
             width: f32::from(window.viewport_size().width),
@@ -174,6 +173,7 @@ impl AppView {
             paper_search,
             paper_reader,
             settings,
+            focus,
             _subscriptions: subscriptions,
         }
     }
@@ -204,19 +204,26 @@ impl Render for AppView {
         let layout = self.panels.layout(self.width);
         let root =
             div()
-                .size_full()
-                .flex()
-                .bg(p.bg)
-                .text_color(p.text)
-                .font_family(FONT_FAMILY)
-                .text_size(gpui::px(14.))
                 .track_focus(&self.focus)
+                .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                    let keys = &event.keystroke;
+                    if this.screen == Screen::Reading && keys.modifiers.control && keys.key == "f" {
+                        this.entry_list
+                            .update(cx, |list, cx| list.toggle_search(window, cx));
+                    }
+                }))
                 .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
                     this.toggle_panel(Panels::toggle_sidebar, cx)
                 }))
                 .on_action(cx.listener(|this, _: &ToggleList, _, cx| {
                     this.toggle_panel(Panels::toggle_list, cx)
                 }))
+                .size_full()
+                .flex()
+                .bg(p.bg)
+                .text_color(p.text)
+                .font_family(FONT_FAMILY)
+                .text_size(gpui::px(14.))
                 .when(
                     self.screen != Screen::Reading || layout.sidebar.is_some(),
                     |d| d.child(self.sidebar.clone()),

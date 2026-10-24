@@ -6,6 +6,7 @@ import dev.rubensalas.atalaya.data.api.EntryQuery
 import dev.rubensalas.atalaya.data.api.EntrySummary
 import dev.rubensalas.atalaya.data.api.EntryUpdate
 import dev.rubensalas.atalaya.data.api.Id
+import dev.rubensalas.atalaya.data.api.MarkAllReadQuery
 import dev.rubensalas.atalaya.data.api.Sidebar
 
 /**
@@ -31,6 +32,12 @@ interface ListRepository {
      * red, [OfflineListRepository] lo apunta y lo manda al volver la red.
      */
     suspend fun updateEntry(id: Id, update: EntryUpdate): EntrySummary
+
+    /**
+     * Marca como leído todo lo del alcance. Solo funciona con red: no se
+     * guarda para después, para no marcar algo que llegó tras la orden.
+     */
+    suspend fun markAllRead(scope: MarkAllReadQuery)
 
     /** Se llama cuando la lista y el menú llegaron bien (S2). */
     suspend fun markSynced()
