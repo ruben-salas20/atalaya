@@ -386,10 +386,20 @@ impl PaperSearch {
                 .gap(px(6.))
                 .px(px(16.))
         };
+        // La línea va debajo de los filtros para que no los mueva al
+        // aparecer mientras se escribe (Rubén, #23).
+        let english = self.english.is_some();
         div()
             .flex_none()
             .flex()
             .flex_col()
+            .child(row().pt(px(10.)).pb(px(4.)).children(fields))
+            .child(
+                row()
+                    .pt(px(4.))
+                    .pb(px(if english { 4. } else { 10. }))
+                    .children(sorts),
+            )
             .when_some(self.english.clone(), |d, english| {
                 d.child(
                     div()
@@ -397,7 +407,8 @@ impl PaperSearch {
                         .items_center()
                         .gap(px(6.))
                         .px(px(18.))
-                        .pt(px(8.))
+                        .pt(px(4.))
+                        .pb(px(10.))
                         .text_size(px(12.5))
                         .text_color(p.text3)
                         .child(icon(Icon::Translate, px(13.), p.text3))
@@ -409,8 +420,6 @@ impl PaperSearch {
                         ),
                 )
             })
-            .child(row().pt(px(10.)).pb(px(4.)).children(fields))
-            .child(row().pt(px(4.)).pb(px(10.)).children(sorts))
     }
 
     fn recents(&self, p: &Palette, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {

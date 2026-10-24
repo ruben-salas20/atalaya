@@ -21,9 +21,9 @@ use gpui_component::tooltip::Tooltip;
 
 use crate::assets::Icon;
 use crate::palette::Palette;
-use crate::ui::format::ago;
+use crate::ui::format::{ago_phrase, code_in_pre};
 use crate::ui::panels;
-use crate::ui::widgets::{bar, icon, icon_button};
+use crate::ui::widgets::{bar, icon, icon_button, more_menu};
 
 /// Cada cuánto se vuelve a pedir un artículo que se está traduciendo.
 const POLL_EVERY: Duration = Duration::from_secs(3);
@@ -285,8 +285,12 @@ impl Reader {
             .child(
                 icon_button("open", Icon::Open, p)
                     .tooltip(|window, cx| Tooltip::new("Abrir en el navegador").build(window, cx))
-                    .on_click(move |_, _, cx| cx.open_url(&url)),
+                    .on_click({
+                        let url = url.clone();
+                        move |_, _, cx| cx.open_url(&url)
+                    }),
             )
+            .child(more_menu("more", url))
     }
 
     fn segment(
@@ -327,7 +331,7 @@ impl Reader {
         if let Some(author) = author.filter(|a| !a.trim().is_empty()) {
             parts.push(author.trim().to_owned());
         }
-        parts.push(format!("hace {}", ago(summary.published_at, Utc::now())));
+        parts.push(ago_phrase(summary.published_at, Utc::now()));
         parts.join(" · ")
     }
 
@@ -392,11 +396,11 @@ impl Reader {
 
         let body = match (&self.load, entry) {
             (_, Some(entry)) => {
-                let html = if spanish {
-                    entry.translated_content.clone().unwrap_or_default()
+                let html = code_in_pre(if spanish {
+                    entry.translated_content.as_deref().unwrap_or_default()
                 } else {
-                    entry.content.clone()
-                };
+                    &entry.content
+                });
                 let id = SharedString::from(format!("body-{}-{}", summary.id, spanish));
                 div()
                     .text_size(body_size)

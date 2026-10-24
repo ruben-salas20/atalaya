@@ -22,7 +22,7 @@ use super::format::{abstract_paragraphs, paper_date};
 use crate::assets::Icon;
 use crate::palette::Palette;
 use crate::ui::reader::{progress, toast};
-use crate::ui::widgets::{bar, icon, icon_button};
+use crate::ui::widgets::{bar, icon, icon_button, more_menu};
 
 const POLL_EVERY: Duration = Duration::from_secs(3);
 
@@ -242,8 +242,12 @@ impl PaperReader {
             .child(
                 icon_button("paper-open", Icon::Open, p)
                     .tooltip(|window, cx| Tooltip::new("Ver en arXiv").build(window, cx))
-                    .on_click(move |_, _, cx| cx.open_url(&abs_url)),
+                    .on_click({
+                        let abs_url = abs_url.clone();
+                        move |_, _, cx| cx.open_url(&abs_url)
+                    }),
             )
+            .child(more_menu("paper-more", abs_url))
     }
 
     fn segment(

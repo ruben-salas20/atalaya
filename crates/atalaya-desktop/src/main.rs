@@ -39,7 +39,10 @@ fn main() {
                 eprintln!("atalaya: no se pudo cargar Roboto: {error}");
             }
             gpui_component::init(cx);
-            Theme::update(cx, |theme| theme.font_family = assets::FONT_FAMILY.into());
+            Theme::update(cx, |theme| {
+                theme.font_family = assets::FONT_FAMILY.into();
+                theme.mono_font_family = assets::MONO_FONT_FAMILY.into();
+            });
             cx.set_global(Connection(connection));
             cx.set_global(FontSize(font_size));
             cx.bind_keys([

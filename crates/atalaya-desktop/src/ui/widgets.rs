@@ -1,9 +1,11 @@
 //! Piezas de interfaz que se repiten, con las medidas de las maquetas.
 
 use gpui::{
-    Div, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Stateful, Styled,
-    Svg, div, px, svg,
+    Anchor, ClipboardItem, Div, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement,
+    Pixels, Stateful, Styled, Svg, div, px, svg,
 };
+use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::menu::{DropdownMenu, PopupMenuItem};
 
 use crate::assets::Icon;
 use crate::palette::Palette;
@@ -30,6 +32,22 @@ pub fn icon_button(id: impl Into<ElementId>, glyph: Icon, p: &Palette) -> Statef
         .cursor_pointer()
         .hover(move |s| s.bg(hover))
         .child(icon(glyph, px(20.), p.text2))
+}
+
+/// Botón «⋮» del final de una barra, con las opciones que no tienen botón
+/// propio. Por ahora solo «Copiar enlace».
+pub fn more_menu(id: impl Into<ElementId>, url: String) -> impl IntoElement {
+    Button::new(id)
+        .ghost()
+        .icon(gpui_component::Icon::empty().path(Icon::More.path()))
+        .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
+            let url = url.clone();
+            menu.item(
+                PopupMenuItem::new("Copiar enlace").on_click(move |_, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(url.clone()))
+                }),
+            )
+        })
 }
 
 /// Barra superior de una columna, de 52 px (`.bar`).

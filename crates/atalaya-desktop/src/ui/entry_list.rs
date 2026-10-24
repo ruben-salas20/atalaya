@@ -1,6 +1,6 @@
 //! Columna 2: la lista de artículos (L2, L3), con `GET /api/entries`.
 
-use atalaya_api::{EntryPage, EntrySummary, Id};
+use atalaya_api::{EntryPage, EntrySummary, Id, View};
 use chrono::Utc;
 use gpui::prelude::*;
 use gpui::{Context, ElementId, EventEmitter, FontWeight, Task, Window, div, px, relative};
@@ -104,6 +104,18 @@ impl EntryList {
     /// aunque ya no encaje en la vista, para no mover la lista al leer.
     pub fn update_entry(&mut self, summary: &EntrySummary, cx: &mut Context<Self>) {
         if let Some(entry) = self.entries.iter_mut().find(|e| e.id == summary.id) {
+            // La cifra del título cuenta los de la vista: en «Sin leer» baja
+            // al leer y en «Guardados» al quitar de guardados.
+            let counted = |e: &EntrySummary| match &self.source {
+                Source::View(View::Unread) => !e.read,
+                Source::View(View::Starred) => e.starred,
+                _ => true,
+            };
+            match (counted(entry), counted(summary)) {
+                (true, false) => self.total = self.total.saturating_sub(1),
+                (false, true) => self.total += 1,
+                _ => {}
+            }
             entry.read = summary.read;
             entry.starred = summary.starred;
             cx.notify();
