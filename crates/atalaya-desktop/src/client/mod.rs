@@ -55,6 +55,10 @@ pub struct ApiClient {
 /// con un error del servicio, no.
 struct Failure {
     network: bool,
+    /// Vale la pena repetir: falló la red o el servicio respondió 5xx (por
+    /// ejemplo, Caddy mientras el servicio se reinicia). Un cambio sin
+    /// enviar se queda en la cola en vez de perderse.
+    retry: bool,
     message: ClientError,
 }
 
@@ -127,10 +131,18 @@ impl ApiClient {
         T: DeserializeOwned + Serialize,
         Q: Serialize,
     {
-        self.send_pending();
+        // Sin red, la cola se manda después de la lectura y solo si esta
+        // llega: si no, cada lectura esperaría dos veces a que falle la red.
+        let was_offline = self.is_offline();
+        if !was_offline {
+            self.send_pending();
+        }
         match read_json(self.request(Method::GET, path).query(query).send()) {
             Ok(value) => {
                 self.offline.store(false, Ordering::Relaxed);
+                if was_offline {
+                    self.send_pending();
+                }
                 if let Some(cache) = self.cache.as_ref().filter(|_| keep(&value)) {
                     cache.store(key, &value);
                 }
@@ -149,9 +161,10 @@ impl ApiClient {
         }
     }
 
-    /// Manda la cola al servicio. Para en el primer fallo de red, y el
-    /// cambio queda para la próxima vez. Un error del servicio descarta ese
-    /// cambio, para que no bloquee a los demás.
+    /// Manda la cola al servicio. Para en el primer fallo de red o 5xx, y el
+    /// cambio queda para la próxima vez. Otro error del servicio (un 404 de
+    /// un artículo borrado) descarta ese cambio, para que no bloquee a los
+    /// demás.
     fn send_pending(&self) {
         let Some(pending) = &self.pending else {
             return;
@@ -163,7 +176,7 @@ impl ApiClient {
                 &format!("/api/entries/{id}"),
                 &update,
             ) {
-                Err(failure) if failure.network => break,
+                Err(failure) if failure.retry => break,
                 _ => pending.forget(id, &update),
             }
         }
@@ -202,6 +215,7 @@ fn read_json<T: DeserializeOwned>(
 ) -> std::result::Result<T, Failure> {
     check(sent)?.json().map_err(|e| Failure {
         network: false,
+        retry: false,
         message: format!("El servicio respondió algo inesperado: {e}"),
     })
 }
@@ -210,6 +224,7 @@ fn read_json<T: DeserializeOwned>(
 fn check(sent: reqwest::Result<Response>) -> std::result::Result<Response, Failure> {
     let response = sent.map_err(|e| Failure {
         network: true,
+        retry: true,
         message: if e.is_timeout() {
             "El servicio tarda demasiado en responder".to_owned()
         } else {
@@ -230,6 +245,7 @@ fn check(sent: reqwest::Result<Response>) -> std::result::Result<Response, Failu
     };
     Err(Failure {
         network: false,
+        retry: status.is_server_error(),
         message,
     })
 }

@@ -20,6 +20,9 @@ impl ImageClient {
     pub fn new() -> Option<Self> {
         let http = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(30))
+            // Algunos servidores de imágenes (Wikimedia) rechazan las
+            // peticiones sin User-Agent.
+            .user_agent(concat!("Atalaya/", env!("CARGO_PKG_VERSION")))
             .build()
             .ok()?;
         Some(Self { http })

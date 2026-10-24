@@ -107,8 +107,15 @@ impl Settings {
 
     /// Lee el archivo, aplica `change` y lo guarda. Así cada pantalla cambia
     /// solo lo suyo sin borrar lo que guardó otra.
+    /// Si el archivo existe pero no se puede leer, no se toca: se perderían
+    /// la dirección y la clave que hubiera que corregir.
     pub fn update(change: impl FnOnce(&mut Self)) -> Result<Self, String> {
-        let mut settings = Self::read().unwrap_or_default();
+        let exists = Self::path().is_some_and(|p| p.exists());
+        let mut settings = if exists {
+            Self::read()?
+        } else {
+            Self::default()
+        };
         change(&mut settings);
         settings.save()?;
         Ok(settings)

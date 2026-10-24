@@ -102,8 +102,10 @@ impl ApiClient {
                 self.forget(id, &sent);
                 Ok(summary)
             }
-            Err(failure) if failure.network && self.pending.is_some() => {
-                self.offline.store(true, Ordering::Relaxed);
+            Err(failure) if failure.retry && self.pending.is_some() => {
+                if failure.network {
+                    self.offline.store(true, Ordering::Relaxed);
+                }
                 Ok(applied(current, update))
             }
             Err(failure) => {
@@ -251,6 +253,34 @@ mod tests {
             }
         }
         String::from_utf8_lossy(&data).into_owned()
+    }
+
+    #[test]
+    fn server_error_keeps_the_queue() {
+        let dir = TempDir::new();
+        let listener = TcpListener::bind("127.0.0.1:0").expect("no se pudo abrir el servidor");
+        let port = listener.local_addr().expect("puerto del servidor").port();
+        // Hace de Caddy mientras el servicio se reinicia.
+        let service = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("conexión de prueba");
+            read_request(&mut stream);
+            stream
+                .write_all(
+                    b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .expect("respuesta de prueba");
+        });
+        let client = client_at(&dir, port);
+        let update = EntryUpdate {
+            read: Some(true),
+            starred: None,
+        };
+        Pending::new(dir.cache()).merge(7, &update);
+
+        client.send_pending();
+
+        service.join().expect("el servicio de prueba falló");
+        assert_eq!(Pending::new(dir.cache()).all(), vec![(7, update)]);
     }
 
     #[test]
