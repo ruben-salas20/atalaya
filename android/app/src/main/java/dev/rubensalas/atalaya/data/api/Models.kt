@@ -53,6 +53,17 @@ data class EntryQuery(
     val categoryId: Id? = null,
     val limit: Int? = null,
     val offset: Int? = null,
+    /** Texto a buscar en el título original o traducido. Vacío o nulo: sin búsqueda. */
+    val q: String? = null,
+)
+
+/**
+ * Parámetros de `POST /api/entries/mark-all-as-read`. Sin ninguno marca
+ * todo lo de «Todos». Si llegan los dos, manda `feedId`.
+ */
+data class MarkAllReadQuery(
+    val feedId: Id? = null,
+    val categoryId: Id? = null,
 )
 
 @Serializable
@@ -189,6 +200,8 @@ data class Feed(
     @SerialName("articles_per_day") val articlesPerDay: Double? = null,
     @SerialName("checked_at") @Serializable(InstantSerializer::class) val checkedAt: Instant? = null,
     val error: FeedError? = null,
+    /** Si es el feed de los papers guardados. Lo dice el servicio; no se mira la URL. */
+    val papers: Boolean = false,
 )
 
 /** Fallo al actualizar un feed (F6). `message` es el de Miniflux, tal cual. */

@@ -45,6 +45,7 @@ Cada requisito tiene un código para citarlo desde las issues.
 | L6 | Si la traducción no está lista, se ve el original con el aviso «Traduciendo…» y cambia solo al terminar |
 | L7 | Si el feed solo trae un resumen, se muestra el artículo completo |
 | L8 | Lo ya descargado se lee sin conexión |
+| L9 | Una lupa en la lista busca por título dentro de lo abierto (vista, feed o carpeta). Busca en el título traducido y en el original, sin tildes ni mayúsculas. Sin conexión, busca en lo descargado |
 
 ### Traducción
 

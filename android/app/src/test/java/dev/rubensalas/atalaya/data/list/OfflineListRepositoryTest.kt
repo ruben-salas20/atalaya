@@ -182,6 +182,14 @@ class OfflineListRepositoryTest {
     }
 
     @Test
+    fun offlineSearchFiltersTheSavedListByTitle() = runTest {
+        repo.sync()
+        online = false
+        assertEquals(listOf(1L), repo.cachedEntries(EntryQuery(view = View.Unread, q = " T1 "))!!.entries.map { it.id })
+        assertEquals(emptyList<Long>(), repo.cachedEntries(EntryQuery(view = View.Unread, q = "zzz"))!!.entries.map { it.id })
+    }
+
+    @Test
     fun savedAndOpenedArticlesReadOffline() = runTest {
         repo.sync()
         repo.entry(3)

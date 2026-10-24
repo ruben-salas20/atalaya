@@ -56,6 +56,10 @@ class AtalayaClientTest {
         assertEquals("/api/entries", list.encodedPath)
         assertEquals("view=unread&category_id=3&limit=20", list.encodedQuery)
 
+        server.enqueue(MockResponse(body = """{"total":0,"entries":[]}"""))
+        client.entries(EntryQuery(view = View.All, limit = 5, q = "Año nuevo"))
+        assertEquals("view=all&limit=5&q=A%C3%B1o%20nuevo", server.takeRequest().url.encodedQuery)
+
         server.enqueue(
             MockResponse(
                 body = """{"id":7,"feed_id":2,"feed_title":"F","title":"T","original_title":"T",

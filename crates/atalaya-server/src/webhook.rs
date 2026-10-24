@@ -8,6 +8,7 @@
 //!
 //! Responde enseguida. La traducción sigue en segundo plano.
 
+use atalaya_api::Id;
 use axum::{
     Router,
     body::Bytes,
@@ -40,6 +41,9 @@ struct Event {
     event_type: String,
     #[serde(default)]
     entries: Vec<MinifluxEntry>,
+    /// Con `save_entry`, Miniflux manda el artículo guardado en este campo.
+    #[serde(default)]
+    entry: Option<MinifluxEntry>,
 }
 
 async fn miniflux(
@@ -67,8 +71,20 @@ async fn miniflux(
 
     let event: Event = serde_json::from_slice(&body)
         .map_err(|e| AppError::bad_request(format!("aviso de Miniflux no válido: {e}")))?;
+    if event.event_type == "save_entry" {
+        // Guardar en la web de Miniflux traduce el texto igual que hacen las
+        // apps al guardar. No toca títulos.
+        let saved: Vec<Id> = event.entry.iter().map(|e| e.id).collect();
+        let translations = state.translations.clone();
+        tokio::spawn(async move {
+            for id in saved {
+                let (translation, _) = translations.content(id).await;
+                tracing::debug!(entry = id, ?translation, "webhook save_entry");
+            }
+        });
+        return Ok(StatusCode::NO_CONTENT);
+    }
     if event.event_type != "new_entries" {
-        // `save_entry` llega al guardar en la web de Miniflux. No toca títulos.
         tracing::debug!("webhook {} ignorado", event.event_type);
         return Ok(StatusCode::NO_CONTENT);
     }
@@ -133,5 +149,16 @@ mod tests {
             b"what do ya want for nothing?",
             "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
         ));
+    }
+
+    #[test]
+    fn save_entry_carries_the_article() {
+        let event: Event = serde_json::from_str(
+            r#"{"event_type":"save_entry","entry":{"id":42,"feed_id":3,"title":"Hola","content":"<p>x</p>"}}"#,
+        )
+        .unwrap();
+        assert_eq!(event.event_type, "save_entry");
+        assert_eq!(event.entry.map(|e| e.id), Some(42));
+        assert!(event.entries.is_empty());
     }
 }

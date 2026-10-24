@@ -1,7 +1,7 @@
 //! Traducción de títulos (paso 2.3, T1–T4).
 //!
 //! Los artículos llegan por dos caminos: el webhook de Miniflux, con lo nuevo,
-//! y la revisión al arrancar, que busca en Miniflux lo que aún no tiene el
+//! y la revisión periódica, que busca en Miniflux lo que aún no tiene el
 //! título traducido (cubre también un webhook perdido). Los dos pasan por
 //! [`Translations::submit_titles`], que guarda el idioma y pone en cola lo que
 //! hay que traducir. Un único trabajador vacía la cola de uno en uno, porque
@@ -13,7 +13,7 @@
 //! 1. Títulos nuevos, del webhook: son cortos (menos de un segundo) y Rubén
 //!    los ve en la lista.
 //! 2. Párrafos de un artículo abierto o guardado: Rubén está esperando.
-//! 3. Títulos de la revisión al arrancar: pueden ser cientos y no corren prisa.
+//! 3. Títulos de la revisión periódica: pueden ser cientos y no corren prisa.
 //!
 //! Como cada párrafo es un trabajo aparte, un título nuevo espera como mucho
 //! a que termine el párrafo en curso, no el artículo entero.
@@ -42,8 +42,11 @@ pub(crate) const SOURCE_LANGS: &[&str] = &["en"];
 const PAGE_SIZE: usize = 100;
 
 /// Variable de entorno que limita cuántos artículos, de los más nuevos,
-/// mira la revisión al arrancar. Sin ella, los mira todos. Sirve para probar.
+/// mira la revisión periódica. Sin ella, los mira todos. Sirve para probar.
 const BACKFILL_LIMIT_VAR: &str = "ATALAYA_BACKFILL_LIMIT";
+
+/// Cada cuánto se repasan los títulos pendientes de traducir.
+const REVIEW_EVERY: Duration = Duration::from_secs(60 * 60);
 
 /// Un artículo visto, ya con el idioma detectado.
 #[derive(Debug, Clone, PartialEq)]
@@ -71,7 +74,7 @@ impl NewEntry {
 pub enum Priority {
     /// Lo nuevo, del webhook.
     Urgent,
-    /// Lo pendiente, de la revisión al arrancar.
+    /// Lo pendiente, de la revisión periódica.
     Backlog,
 }
 
@@ -121,7 +124,7 @@ impl Default for Queue {
 }
 
 impl Translations {
-    /// Pone en marcha el trabajador y la revisión al arrancar. Se llama una
+    /// Pone en marcha el trabajador y la revisión periódica. Se llama una
     /// vez, desde `main`.
     pub fn start(&self) {
         let Some(receivers) = self.queue().receivers.lock().unwrap().take() else {
@@ -129,12 +132,24 @@ impl Translations {
             return;
         };
         tokio::spawn(self.clone().run_worker(receivers));
-        tokio::spawn(self.clone().backfill(self.miniflux().clone()));
+        tokio::spawn(self.clone().review_forever());
+    }
+
+    /// Revisa los títulos al arrancar y luego cada hora. Así un título que se
+    /// quedó sin traducir (llama-swap caído, un fallo de red) se recupera solo.
+    async fn review_forever(self) {
+        let mut ticker = tokio::time::interval(REVIEW_EVERY);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            // La primera vez, `tick` responde enseguida: así la de arranque es la primera.
+            ticker.tick().await;
+            self.review().await;
+        }
     }
 
     /// Manda a traducir los títulos de un feed recién creado. Miniflux guarda
     /// sus artículos al crearlo, pero el webhook solo avisa cuando actualiza un
-    /// feed: sin esto, esos títulos esperarían a la revisión al arrancar.
+    /// feed: sin esto, esos títulos esperarían a la revisión periódica.
     pub fn submit_new_feed(&self, feed_id: Id) {
         let this = self.clone();
         tokio::spawn(async move {
@@ -286,7 +301,8 @@ impl Translations {
 
     /// Busca en Miniflux los artículos, del más nuevo al más viejo, y manda
     /// a traducir los títulos que falten.
-    async fn backfill(self, miniflux: Miniflux) {
+    async fn review(&self) {
+        let miniflux = self.miniflux();
         let limit = std::env::var(BACKFILL_LIMIT_VAR)
             .ok()
             .and_then(|v| v.parse::<usize>().ok());
@@ -312,7 +328,7 @@ impl Translations {
         }
         let seen = entries.len();
         let queued = self.submit_titles(entries, Priority::Backlog).await;
-        tracing::info!("revisión al arrancar: {seen} artículos vistos, {queued} títulos en cola");
+        tracing::info!("revisión de títulos: {seen} artículos vistos, {queued} títulos en cola");
     }
 }
 
@@ -366,11 +382,11 @@ impl Miniflux {
             match self.entries_page(limit, offset).await {
                 Ok(page) => return Some(page),
                 Err(e) if attempt < ATTEMPTS => {
-                    tracing::warn!("revisión al arrancar: {}. Reintento en 15 s", e.message);
+                    tracing::warn!("revisión de títulos: {}. Reintento en 15 s", e.message);
                     tokio::time::sleep(Duration::from_secs(15)).await;
                 }
                 Err(e) => {
-                    tracing::error!("revisión al arrancar abandonada: {}", e.message);
+                    tracing::error!("revisión de títulos abandonada: {}", e.message);
                 }
             }
         }

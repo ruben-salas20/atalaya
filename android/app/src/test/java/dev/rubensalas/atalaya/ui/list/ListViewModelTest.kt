@@ -7,6 +7,7 @@ import dev.rubensalas.atalaya.data.api.EntryQuery
 import dev.rubensalas.atalaya.data.api.EntrySummary
 import dev.rubensalas.atalaya.data.api.EntryUpdate
 import dev.rubensalas.atalaya.data.api.Id
+import dev.rubensalas.atalaya.data.api.MarkAllReadQuery
 import dev.rubensalas.atalaya.data.api.Sidebar
 import dev.rubensalas.atalaya.data.api.SidebarCategory
 import dev.rubensalas.atalaya.data.api.SidebarFeed
@@ -54,6 +55,11 @@ class ListViewModelTest {
             failUpdate?.let { throw it }
             updates += id to update
             return Companion.entry(id).copy(read = update.read ?: false, starred = update.starred ?: false)
+        }
+
+        val marked = mutableListOf<MarkAllReadQuery>()
+        override suspend fun markAllRead(scope: MarkAllReadQuery) {
+            marked += scope
         }
 
         override suspend fun markSynced() {
@@ -167,6 +173,22 @@ class ListViewModelTest {
         assertFalse(s.entries[0].read)
         assertEquals(7L, s.sidebar!!.unread)
         assertEquals("No se pudo cambiar: No se pudo conectar con el servicio", s.error)
+    }
+
+    @Test
+    fun markAllReadInAFeedSendsThatFeedAndReloads() {
+        vm.select(ListSelection.Feed(2L, "B"))
+        val before = repo.queries.size
+        vm.markAllRead()
+        assertEquals(listOf(MarkAllReadQuery(feedId = 2L)), repo.marked)
+        assertEquals(before + 1, repo.queries.size)
+    }
+
+    @Test
+    fun markAllReadIsIgnoredInStarred() {
+        vm.select(ListSelection.Fixed(View.Starred))
+        vm.markAllRead()
+        assertTrue(repo.marked.isEmpty())
     }
 
     @Test

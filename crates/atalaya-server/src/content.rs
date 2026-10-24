@@ -53,9 +53,11 @@ const ATTEMPTS_PER_SEGMENT: usize = 2;
 /// Tiempo máximo para que Miniflux descargue el artículo completo.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(60);
 
-const HTML_PROMPT: &str = "Translate the following HTML fragment from English into Latin American Spanish. \
-Keep every HTML tag and attribute exactly as it is, including links (<a>) and emphasis (<em>, <i>, <b>, <strong>), and translate only the visible text. \
-Reply with the translated fragment only, without notes, explanations or code fences.\n\n";
+const HTML_PROMPT: &str = "Translate the following text from English into Latin American Spanish. \
+Its tags are replaced by short placeholders: <t1>...</t1> wraps some text, and <t2/> stands alone. \
+Keep every placeholder exactly as it is, with the same number and in the same place around the words it wraps. \
+Do not add, remove, renumber or invent placeholders. Translate only the visible text. \
+Reply with the translated text only, without notes, explanations or code fences.\n\n";
 
 const TEXT_PROMPT: &str = "Translate the following text from English into Latin American Spanish. \
 Reply with the Spanish translation only, without notes, explanations or quotes.\n\n";
@@ -109,6 +111,12 @@ const BLOCK: &[&str] = &[
     "thead",
     "tr",
     "ul",
+];
+
+/// Etiquetas que nunca tienen cierre (`<br>`, `<img>`…).
+const VOID: &[&str] = &[
+    "area", "base", "col", "embed", "input", "link", "meta", "param", "source", "track", "wbr",
+    "br", "hr", "img",
 ];
 
 /// Palabras que en un texto español casi nunca aparecen. Las mismas que
@@ -360,10 +368,11 @@ impl Translations {
 /// GPU. Devuelve error solo si llama-swap no responde: entonces el artículo
 /// entero falla, porque seguir sería sumar esperas.
 pub async fn translate_segment(llama: &Llama, html: &str) -> Result<Segment, String> {
-    let prompt = if has_tags(html) {
-        format!("{HTML_PROMPT}{html}")
+    let (source, originals) = abbreviate(html);
+    let prompt = if originals.is_empty() {
+        format!("{TEXT_PROMPT}{source}")
     } else {
-        format!("{TEXT_PROMPT}{html}")
+        format!("{HTML_PROMPT}{source}")
     };
     let max_tokens = (html.len() / 2 + 256).clamp(256, 8192) as u32;
     for attempt in 1..=ATTEMPTS_PER_SEGMENT {
@@ -375,7 +384,13 @@ pub async fn translate_segment(llama: &Llama, html: &str) -> Result<Segment, Str
             }
             Err(e) => return Err(e),
         };
-        let candidate = clean_output(&raw);
+        let candidate = match restore(&clean_output(&raw), &originals) {
+            Ok(restored) => restored,
+            Err(why) => {
+                tracing::debug!(attempt, "párrafo rechazado: {why}");
+                continue;
+            }
+        };
         match check(html, &candidate) {
             Ok(()) => {
                 return Ok(Segment {
@@ -672,6 +687,134 @@ pub fn clean_output(raw: &str) -> String {
     t.to_owned()
 }
 
+/// Una etiqueta original, tal cual estaba. `close` solo existe si la etiqueta
+/// de apertura tiene su cierre dentro del párrafo.
+struct Original {
+    raw: String,
+    close: Option<String>,
+}
+
+/// La forma corta de una etiqueta: `<tN>` y `</tN>` si forma pareja, `<tN/>`
+/// si va sola. Los números empiezan en 1.
+fn placeholder(n: usize, pair: bool, closing: bool) -> String {
+    match (pair, closing) {
+        (false, _) => format!("<t{n}/>"),
+        (true, true) => format!("</t{n}>"),
+        (true, false) => format!("<t{n}>"),
+    }
+}
+
+/// Cambia cada etiqueta del párrafo por su forma corta. Devuelve el texto
+/// abreviado y la tabla para deshacer el cambio con [`restore`]. Un cierre
+/// sin apertura, o una apertura sin cierre, queda como etiqueta suelta.
+fn abbreviate(html: &str) -> (String, Vec<Original>) {
+    let tokens = tokenize(html);
+    let mut originals: Vec<Original> = Vec::new();
+    // Por token: la etiqueta de la tabla que le toca y si es de cierre.
+    let mut slots: Vec<Option<(usize, bool)>> = Vec::with_capacity(tokens.len());
+    // Aperturas que aún esperan su cierre.
+    let mut open: Vec<(&str, usize)> = Vec::new();
+    for token in &tokens {
+        let slot = match token {
+            Token::Text(_) => None,
+            Token::Other(raw) => {
+                originals.push(Original {
+                    raw: (*raw).to_owned(),
+                    close: None,
+                });
+                Some((originals.len() - 1, false))
+            }
+            Token::Tag { raw, name, closing } => {
+                if *closing && let Some(k) = open.iter().rposition(|(n, _)| *n == name.as_str()) {
+                    let (_, e) = open[k];
+                    // Las aperturas que quedaron encima se quedan sueltas.
+                    open.truncate(k);
+                    originals[e].close = Some((*raw).to_owned());
+                    Some((e, true))
+                } else {
+                    originals.push(Original {
+                        raw: (*raw).to_owned(),
+                        close: None,
+                    });
+                    let e = originals.len() - 1;
+                    if !*closing && !token.is_self_closing() && !VOID.contains(&name.as_str()) {
+                        open.push((name.as_str(), e));
+                    }
+                    Some((e, *closing))
+                }
+            }
+        };
+        slots.push(slot);
+    }
+    let mut out = String::with_capacity(html.len());
+    for (token, slot) in tokens.iter().zip(slots) {
+        match slot {
+            None => out.push_str(token.raw()),
+            Some((e, closing)) => {
+                let pair = originals[e].close.is_some();
+                out.push_str(&placeholder(e + 1, pair, closing));
+            }
+        }
+    }
+    (out, originals)
+}
+
+/// Deshace [`abbreviate`]. Solo acepta cada forma corta exacta, una vez por
+/// etiqueta y bien anidada. Si falta, sobra o cambia alguna, devuelve error.
+fn restore(abbreviated: &str, originals: &[Original]) -> Result<String, String> {
+    let mut seen = vec![false; originals.len()];
+    let mut open: Vec<usize> = Vec::new();
+    let mut out = String::with_capacity(abbreviated.len());
+    for token in tokenize(abbreviated) {
+        let (raw, name, closing) = match token {
+            Token::Text(text) => {
+                out.push_str(text);
+                continue;
+            }
+            Token::Other(raw) => return Err(format!("texto inventado: {raw}")),
+            Token::Tag { raw, name, closing } => (raw, name, closing),
+        };
+        let n = name
+            .strip_prefix('t')
+            .and_then(|d| d.parse::<usize>().ok())
+            .filter(|n| (1..=originals.len()).contains(n))
+            .ok_or_else(|| format!("etiqueta inventada: {raw}"))?;
+        let i = n - 1;
+        let original = &originals[i];
+        if raw != placeholder(n, original.close.is_some(), closing) {
+            return Err(format!("etiqueta cambiada: {raw}"));
+        }
+        match &original.close {
+            None => {
+                if std::mem::replace(&mut seen[i], true) {
+                    return Err(format!("etiqueta repetida: {raw}"));
+                }
+                out.push_str(&original.raw);
+            }
+            Some(close) if closing => {
+                if open.pop() != Some(i) {
+                    return Err(format!("etiqueta mal anidada: {raw}"));
+                }
+                out.push_str(close);
+            }
+            Some(_) => {
+                if std::mem::replace(&mut seen[i], true) {
+                    return Err(format!("etiqueta repetida: {raw}"));
+                }
+                open.push(i);
+                out.push_str(&original.raw);
+            }
+        }
+    }
+    if !open.is_empty() {
+        return Err("etiqueta sin cerrar".into());
+    }
+    if let Some(i) = seen.iter().position(|s| !s) {
+        return Err(format!("falta la etiqueta {}", i + 1));
+    }
+    Ok(out)
+}
+
 /// Etiquetas (nombre, y `/` delante si cierra) y direcciones de `href` y
 /// `src`, ordenadas para comparar sin mirar el orden.
 fn signature(html: &str) -> (Vec<String>, Vec<String>) {
@@ -717,12 +860,6 @@ fn attr_value<'a>(tag: &'a str, attr: &str) -> Option<&'a str> {
         return Some(&body[..end]);
     }
     None
-}
-
-fn has_tags(html: &str) -> bool {
-    tokenize(html)
-        .iter()
-        .any(|t| matches!(t, Token::Tag { .. } | Token::Other(_)))
 }
 
 fn has_letters(html: &str) -> bool {
@@ -1001,6 +1138,70 @@ The Fi Ultra is the first dog tracker.
         assert_eq!(check("Fi Ultra", "Fi Ultra"), Ok(()));
         // Ni comerse la mitad ni inventar.
         assert!(check(english, "La empresa dijo.").is_err());
+    }
+
+    const ABBREVIATED: &str = r#"Read <a href="https://a.com/?q=1&amp;b=2" title='say "hi"'>this</a> and <em>that <strong>now</strong></em>, <img src="x.png"/> ok<br>."#;
+
+    #[test]
+    fn abbreviation_round_trips_without_changes() {
+        let (abbr, originals) = abbreviate(ABBREVIATED);
+        assert_eq!(
+            abbr,
+            "Read <t1>this</t1> and <t2>that <t3>now</t3></t2>, <t4/> ok<t5/>."
+        );
+        assert!(!abbr.contains("href"), "los atributos no van al modelo");
+        assert_eq!(restore(&abbr, &originals), Ok(ABBREVIATED.to_owned()));
+        let plain = "Sin etiquetas, solo texto.";
+        let (abbr, originals) = abbreviate(plain);
+        assert_eq!(abbr, plain);
+        assert_eq!(restore(&abbr, &originals), Ok(plain.to_owned()));
+    }
+
+    #[test]
+    fn abbreviation_keeps_nested_pairs() {
+        let html = "<em>a <strong>b</strong></em>";
+        let (abbr, originals) = abbreviate(html);
+        assert_eq!(abbr, "<t1>a <t2>b</t2></t1>");
+        assert_eq!(restore(&abbr, &originals), Ok(html.to_owned()));
+    }
+
+    #[test]
+    fn restored_translation_passes_check() {
+        let o = r#"Read <a href="https://a.com/?x=1&amp;y=2">this</a> now."#;
+        let (_, originals) = abbreviate(o);
+        let restored = restore("Lee <t1>esto</t1> ahora.", &originals).unwrap();
+        assert_eq!(
+            restored,
+            r#"Lee <a href="https://a.com/?x=1&amp;y=2">esto</a> ahora."#
+        );
+        assert_eq!(check(o, &restored), Ok(()));
+    }
+
+    #[test]
+    fn restore_rejects_lost_tags() {
+        let (_, originals) = abbreviate(ABBREVIATED);
+        assert!(restore("Lee <t1>esto</t1> y aquello ahora.", &originals).is_err());
+        assert!(restore("Lee esto y <t2>aquello</t2>.", &originals).is_err());
+        assert!(restore("<t1>Lee</t1> <t2>y</t2><t3>a</t3></t2>", &originals).is_err());
+    }
+
+    #[test]
+    fn restore_rejects_invented_tags() {
+        let (_, originals) = abbreviate(ABBREVIATED);
+        let base = "<t1>Lee</t1> <t2>y <t3>ya</t3></t2>, <t4/> ok<t5/>.";
+        assert!(restore(base, &originals).is_ok());
+        assert!(restore(&format!("{base}<t6/>"), &originals).is_err());
+        assert!(restore(&format!("{base}<b>x</b>"), &originals).is_err());
+        assert!(restore(&format!("{base}<!-- x -->"), &originals).is_err());
+    }
+
+    #[test]
+    fn restore_rejects_bad_nesting_and_changed_forms() {
+        let (_, originals) = abbreviate("<em>a <strong>b</strong></em>");
+        assert!(restore("<t1>a <t2>b</t1></t2>", &originals).is_err());
+        assert!(restore("<t1 class=\"x\">a <t2>b</t2></t1>", &originals).is_err());
+        assert!(restore("<t1>a <t2>b</t2>", &originals).is_err());
+        assert!(restore("<t1>a <t2>b</t2></t1><t1>c</t1>", &originals).is_err());
     }
 
     #[test]

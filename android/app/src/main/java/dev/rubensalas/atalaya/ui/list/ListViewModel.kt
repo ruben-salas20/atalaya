@@ -7,6 +7,7 @@ import dev.rubensalas.atalaya.data.api.EntryQuery
 import dev.rubensalas.atalaya.data.api.EntrySummary
 import dev.rubensalas.atalaya.data.api.EntryUpdate
 import dev.rubensalas.atalaya.data.api.Id
+import dev.rubensalas.atalaya.data.api.MarkAllReadQuery
 import dev.rubensalas.atalaya.data.api.Sidebar
 import dev.rubensalas.atalaya.data.api.View
 import dev.rubensalas.atalaya.data.list.ListRepository
@@ -16,6 +17,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,10 +31,14 @@ sealed interface ListSelection {
     data class Feed(val id: Id, val title: String) : ListSelection
 
     // En una carpeta o un feed se ven todos sus artículos; los leídos, en gris (L3).
-    fun query(limit: Int, offset: Int): EntryQuery = when (this) {
-        is Fixed -> EntryQuery(view = view, limit = limit, offset = offset)
-        is Category -> EntryQuery(view = View.All, categoryId = id, limit = limit, offset = offset)
-        is Feed -> EntryQuery(view = View.All, feedId = id, limit = limit, offset = offset)
+    // Con texto de búsqueda, la misma consulta pero filtrada por título.
+    fun query(limit: Int, offset: Int, search: String = ""): EntryQuery {
+        val q = search.takeIf { it.isNotBlank() }
+        return when (this) {
+            is Fixed -> EntryQuery(view = view, limit = limit, offset = offset, q = q)
+            is Category -> EntryQuery(view = View.All, categoryId = id, limit = limit, offset = offset, q = q)
+            is Feed -> EntryQuery(view = View.All, feedId = id, limit = limit, offset = offset, q = q)
+        }
     }
 }
 
@@ -49,6 +55,10 @@ data class ListUiState(
     val error: String? = null,
     /** Sin conexión: se ve lo guardado en el móvil (L8). */
     val offline: Boolean = false,
+    /** La barra de búsqueda está abierta en lugar del título. */
+    val searching: Boolean = false,
+    /** Lo que se escribió en la búsqueda. Vacío: la lista normal. */
+    val search: String = "",
 ) {
     val canLoadMore: Boolean get() = entries.size < total
 
@@ -90,11 +100,36 @@ class ListViewModel(private val repo: ListRepository) : ViewModel() {
 
     private var loadJob: Job? = null
     private var moreJob: Job? = null
+    private var searchJob: Job? = null
 
     fun select(selection: ListSelection) {
         if (selection == _state.value.selection) return
-        _state.update { it.copy(selection = selection, entries = emptyList(), total = 0, error = null) }
+        searchJob?.cancel()
+        _state.update {
+            it.copy(selection = selection, entries = emptyList(), total = 0, error = null, search = "", searching = false)
+        }
         refresh()
+    }
+
+    /** Abre la barra de búsqueda. La lista no cambia hasta escribir algo. */
+    fun openSearch() = _state.update { it.copy(searching = true) }
+
+    /** Cierra la búsqueda y vuelve a la lista normal, si había un texto buscado. */
+    fun closeSearch() {
+        val hadText = _state.value.search.isNotEmpty()
+        searchJob?.cancel()
+        _state.update { it.copy(searching = false, search = "") }
+        if (hadText) refresh()
+    }
+
+    /** Cambia el texto buscado. Espera un momento a que se deje de escribir y entonces busca. */
+    fun setSearch(text: String) {
+        _state.update { it.copy(search = text) }
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            delay(SEARCH_DELAY_MS)
+            refresh()
+        }
     }
 
     /**
@@ -107,16 +142,16 @@ class ListViewModel(private val repo: ListRepository) : ViewModel() {
         loadJob?.cancel()
         moreJob?.cancel()
         val selection = _state.value.selection
-        val limit = _state.value.entries.size.coerceIn(PAGE_SIZE, MAX_PAGE_SIZE)
+        val query = selection.query(_state.value.entries.size.coerceIn(PAGE_SIZE, MAX_PAGE_SIZE), 0, _state.value.search)
         _state.update {
             it.copy(loading = it.entries.isEmpty(), refreshing = pulled, loadingMore = false, error = null)
         }
         loadJob = viewModelScope.launch {
-            if (_state.value.entries.isEmpty()) showCached(selection, limit, offline = false)
+            if (_state.value.entries.isEmpty()) showCached(query, offline = false)
             try {
                 val (sidebar, page) = coroutineScope {
                     val sidebar = async { repo.sidebar() }
-                    val page = async { repo.entries(selection.query(limit, 0)) }
+                    val page = async { repo.entries(query) }
                     sidebar.await() to page.await()
                 }
                 _state.update {
@@ -133,15 +168,15 @@ class ListViewModel(private val repo: ListRepository) : ViewModel() {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ApiException) {
-                if (e.status == null && showCached(selection, limit, offline = true)) return@launch
+                if (e.status == null && showCached(query, offline = true)) return@launch
                 _state.update { it.copy(loading = false, refreshing = false, error = errorMessage(e)) }
             }
         }
     }
 
     /** Enseña lo guardado en el móvil. Devuelve false si no hay nada guardado. */
-    private suspend fun showCached(selection: ListSelection, limit: Int, offline: Boolean): Boolean {
-        val page = repo.cachedEntries(selection.query(limit, 0)) ?: return false
+    private suspend fun showCached(query: EntryQuery, offline: Boolean): Boolean {
+        val page = repo.cachedEntries(query) ?: return false
         // Antes de la red, una lista vacía solo haría parpadear el «no hay artículos».
         if (!offline && page.entries.isEmpty()) return false
         val sidebar = repo.cachedSidebar()
@@ -166,7 +201,7 @@ class ListViewModel(private val repo: ListRepository) : ViewModel() {
         if (current.loading || current.loadingMore || !current.canLoadMore) return
         _state.update { it.copy(loadingMore = true) }
         moreJob = viewModelScope.launch {
-            val query = current.selection.query(PAGE_SIZE, current.entries.size)
+            val query = current.selection.query(PAGE_SIZE, current.entries.size, current.search)
             try {
                 val page = try {
                     repo.entries(query)
@@ -217,12 +252,32 @@ class ListViewModel(private val repo: ListRepository) : ViewModel() {
         }
     }
 
+    /** Marca como leído lo de la lista abierta. «Destacados» no tiene este botón. */
+    fun markAllRead() {
+        val scope = when (val selection = _state.value.selection) {
+            is ListSelection.Fixed -> if (selection.view == View.Starred) return else MarkAllReadQuery()
+            is ListSelection.Category -> MarkAllReadQuery(categoryId = selection.id)
+            is ListSelection.Feed -> MarkAllReadQuery(feedId = selection.id)
+        }
+        viewModelScope.launch {
+            try {
+                repo.markAllRead(scope)
+                refresh()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ApiException) {
+                _state.update { it.copy(error = "No se pudo marcar: ${errorMessage(e)}") }
+            }
+        }
+    }
+
     private fun errorMessage(e: ApiException): String =
         if (e.status == 401) "La clave no es correcta. Revísala en Ajustes." else e.message.orEmpty()
 
     companion object {
         const val PAGE_SIZE = 50
         const val MAX_PAGE_SIZE = 200
+        const val SEARCH_DELAY_MS = 300L
         const val OFFLINE_NOTICE = "Sin conexión. Ves lo guardado en el móvil."
     }
 }

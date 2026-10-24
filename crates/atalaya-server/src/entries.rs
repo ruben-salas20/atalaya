@@ -5,14 +5,17 @@
 //!
 //! [`Translations`]: crate::translations::Translations
 
-use atalaya_api::{Entry, EntryPage, EntryQuery, EntrySummary, EntryUpdate, Id, View};
+use atalaya_api::{
+    Entry, EntryPage, EntryQuery, EntrySummary, EntryUpdate, Id, MarkAllReadQuery, View,
+};
 use axum::{
     Json, Router,
     extract::{
         Path, Query, State,
         rejection::{JsonRejection, PathRejection, QueryRejection},
     },
-    routing::get,
+    http::StatusCode,
+    routing::{get, post},
 };
 use chrono::{DateTime, Utc};
 use reqwest::Method;
@@ -33,6 +36,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/entries", get(list))
         .route("/entries/{id}", get(open).patch(update))
+        .route("/entries/mark-all-as-read", post(mark_all_read))
 }
 
 async fn list(
@@ -41,6 +45,10 @@ async fn list(
 ) -> AppResult<Json<EntryPage>> {
     let Query(query) = query.map_err(|e| invalid("parámetros no válidos", e.body_text()))?;
     let place = state.papers.place().await;
+    if let Some(needle) = needle(&query) {
+        let (total, entries) = search(&state, &query, place, &needle).await?;
+        return Ok(Json(EntryPage { total, entries }));
+    }
     let page = state.miniflux.entries(&query, place).await?;
     let ids: Vec<Id> = page.entries.iter().map(|e| e.id).collect();
     let titles = state.translations.titles(&ids).await;
@@ -52,6 +60,72 @@ async fn list(
             .map(|e| summary(e, titles.get(&e.id)))
             .collect(),
     }))
+}
+
+/// Texto de búsqueda ya plegado, o `None` si no hay nada que buscar.
+fn needle(query: &EntryQuery) -> Option<String> {
+    let needle = atalaya_api::fold(query.q.as_deref()?.trim());
+    (!needle.is_empty()).then_some(needle)
+}
+
+/// Busca `needle` en la vista entera y devuelve el total de coincidencias y
+/// la página pedida, del más nuevo al más viejo.
+///
+/// Miniflux no sirve para esto: su búsqueda no mira los títulos traducidos y
+/// distingue tildes. Por eso se recorre la vista con `order=id` (que no
+/// repite ni salta artículos entre páginas) y se filtra aquí. Cada página
+/// trae el contenido de sus artículos, así que una búsqueda cuesta más que
+/// una página normal.
+async fn search(
+    state: &AppState,
+    query: &EntryQuery,
+    place: Option<PapersPlace>,
+    needle: &str,
+) -> AppResult<(u64, Vec<EntrySummary>)> {
+    let mut found: Vec<EntrySummary> = Vec::new();
+    let mut scanned: u32 = 0;
+    loop {
+        let scan = EntryQuery {
+            limit: Some(MAX_LIMIT),
+            offset: Some(scanned),
+            ..query.clone()
+        };
+        let page = state.miniflux.scan(&scan, place).await?;
+        if page.entries.is_empty() {
+            break;
+        }
+        scanned += page.entries.len() as u32;
+        let ids: Vec<Id> = page.entries.iter().map(|e| e.id).collect();
+        let titles = state.translations.titles(&ids).await;
+        found.extend(page.entries.iter().filter_map(|e| {
+            let title = titles.get(&e.id);
+            title_matches(e, title, needle).then(|| summary(e, title))
+        }));
+        if u64::from(scanned) >= page.total {
+            break;
+        }
+    }
+    found.sort_by(|a, b| b.published_at.cmp(&a.published_at).then(b.id.cmp(&a.id)));
+    let total = found.len() as u64;
+    let start = (query.offset.unwrap_or(0) as usize).min(found.len());
+    let entries = found
+        .into_iter()
+        .skip(start)
+        .take(limit_of(query) as usize)
+        .collect();
+    Ok((total, entries))
+}
+
+/// Sí si el título original o el traducido contienen el texto buscado.
+fn title_matches(entry: &MinifluxEntry, title: Option<&TitleInfo>, needle: &str) -> bool {
+    atalaya_api::fold(&entry.title).contains(needle)
+        || title
+            .and_then(|t| t.title.as_deref())
+            .is_some_and(|t| atalaya_api::fold(t).contains(needle))
+}
+
+fn limit_of(query: &EntryQuery) -> u32 {
+    query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
 }
 
 async fn open(
@@ -118,6 +192,28 @@ async fn update(
     Ok(Json(summary(&entry, title.as_ref())))
 }
 
+/// Marca como leído lo de un feed, lo de una carpeta o, sin filtro, «Todos».
+async fn mark_all_read(
+    State(state): State<AppState>,
+    query: Result<Query<MarkAllReadQuery>, QueryRejection>,
+) -> AppResult<StatusCode> {
+    let Query(query) = query.map_err(|e| invalid("parámetros no válidos", e.body_text()))?;
+    match (query.feed_id, query.category_id) {
+        (Some(feed), _) => state.miniflux.mark_feed_read(feed).await?,
+        (None, Some(category)) => state.miniflux.mark_category_read(category).await?,
+        (None, None) => {
+            // Sin saber qué feed es el de papers, no se marca nada: podría ser ese.
+            let papers = state.papers.saved_feed(false).await?;
+            for feed in state.miniflux.feed_ids().await? {
+                if Some(feed) != papers {
+                    state.miniflux.mark_feed_read(feed).await?;
+                }
+            }
+        }
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn title_of(state: &AppState, id: Id) -> Option<TitleInfo> {
     state.translations.titles(&[id]).await.remove(&id)
 }
@@ -155,18 +251,32 @@ fn entries_request(
     query: &EntryQuery,
     papers: Option<PapersPlace>,
 ) -> (String, Vec<(&'static str, String)>) {
+    entries_request_ordered(query, papers, NEWEST_FIRST)
+}
+
+/// Orden de Miniflux para la lista: del más nuevo al más viejo.
+const NEWEST_FIRST: [(&str, &str); 2] = [("order", "published_at"), ("direction", "desc")];
+/// Orden para recorrer una vista entera sin repetir ni saltar artículos.
+const BY_ID: [(&str, &str); 2] = [("order", "id"), ("direction", "asc")];
+
+fn entries_request_ordered(
+    query: &EntryQuery,
+    papers: Option<PapersPlace>,
+    order: [(&'static str, &'static str); 2],
+) -> (String, Vec<(&'static str, String)>) {
     let path = match (query.feed_id, query.category_id) {
         (Some(feed), _) => format!("/v1/feeds/{feed}/entries"),
         (None, Some(category)) => format!("/v1/categories/{category}/entries"),
         (None, None) => "/v1/entries".to_owned(),
     };
-    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
-    let mut params = vec![
-        ("order", "published_at".to_owned()),
-        ("direction", "desc".to_owned()),
-        ("limit", limit.to_string()),
+    let mut params: Vec<(&'static str, String)> = order
+        .into_iter()
+        .map(|(key, value)| (key, value.to_owned()))
+        .collect();
+    params.extend([
+        ("limit", limit_of(query).to_string()),
         ("offset", query.offset.unwrap_or(0).to_string()),
-    ];
+    ]);
     match query.view {
         // Sin `status`, Miniflux también devuelve los borrados.
         View::All => {
@@ -230,6 +340,19 @@ impl Miniflux {
         papers: Option<PapersPlace>,
     ) -> AppResult<MinifluxEntryPage> {
         let (path, params) = entries_request(query, papers);
+        let mut page: MinifluxEntryPage =
+            Self::send(self.request(Method::GET, &path).query(&params)).await?;
+        sort_newest_first(&mut page.entries);
+        Ok(page)
+    }
+
+    /// Una página de la vista en orden de id, sin ordenar aquí: para la búsqueda.
+    pub(crate) async fn scan(
+        &self,
+        query: &EntryQuery,
+        papers: Option<PapersPlace>,
+    ) -> AppResult<MinifluxEntryPage> {
+        let (path, params) = entries_request_ordered(query, papers, BY_ID);
         Self::send(self.request(Method::GET, &path).query(&params)).await
     }
 
@@ -246,6 +369,28 @@ impl Miniflux {
         });
         Self::send_empty(self.request(Method::PUT, "/v1/entries").json(&body)).await?;
         Ok(())
+    }
+
+    pub(crate) async fn mark_feed_read(&self, feed: Id) -> AppResult<()> {
+        let path = format!("/v1/feeds/{feed}/mark-all-as-read");
+        Self::send_empty(self.request(Method::PUT, &path)).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn mark_category_read(&self, category: Id) -> AppResult<()> {
+        let path = format!("/v1/categories/{category}/mark-all-as-read");
+        Self::send_empty(self.request(Method::PUT, &path)).await?;
+        Ok(())
+    }
+
+    /// Los ids de todos los feeds, también el oculto de papers.
+    pub(crate) async fn feed_ids(&self) -> AppResult<Vec<Id>> {
+        #[derive(Deserialize)]
+        struct FeedId {
+            id: Id,
+        }
+        let feeds: Vec<FeedId> = self.get("/v1/feeds").await?;
+        Ok(feeds.into_iter().map(|f| f.id).collect())
     }
 
     pub(crate) async fn toggle_starred(&self, id: Id) -> AppResult<()> {
@@ -267,6 +412,13 @@ impl Miniflux {
 /// Petición mal formada, como [`atalaya_api::ApiError`] y no como texto suelto.
 fn invalid(what: &str, detail: String) -> AppError {
     AppError::bad_request(format!("{what}: {detail}"))
+}
+
+/// Del más nuevo al más viejo. Con la misma fecha, el id más alto primero.
+/// Miniflux solo acepta un orden, así que el desempate se hace aquí, dentro
+/// de la página. Entre páginas, los empates pueden repetirse o saltarse.
+pub(crate) fn sort_newest_first(entries: &mut [MinifluxEntry]) {
+    entries.sort_by(|a, b| b.published_at.cmp(&a.published_at).then(b.id.cmp(&a.id)));
 }
 
 fn not_found_in_spanish(e: AppError, id: Id) -> AppError {
@@ -305,6 +457,23 @@ mod tests {
 
     fn entry() -> MinifluxEntry {
         serde_json::from_str(MINIFLUX_ENTRY).unwrap()
+    }
+
+    #[test]
+    fn ties_in_date_go_by_newest_id() {
+        let at = |id: Id, date: &str| MinifluxEntry {
+            id,
+            published_at: date.parse().unwrap(),
+            ..entry()
+        };
+        let mut entries = vec![
+            at(5, "2023-07-01T10:00:00Z"),
+            at(9, "2023-07-01T10:00:00Z"),
+            at(7, "2023-07-02T10:00:00Z"),
+        ];
+        sort_newest_first(&mut entries);
+        let ids: Vec<Id> = entries.iter().map(|e| e.id).collect();
+        assert_eq!(ids, [7, 9, 5]);
     }
 
     #[test]
@@ -434,6 +603,49 @@ mod tests {
     }
 
     #[test]
+    fn scan_goes_by_id_in_pages_of_200() {
+        let query = EntryQuery {
+            limit: Some(MAX_LIMIT),
+            offset: Some(400),
+            ..Default::default()
+        };
+        let (path, params) = entries_request_ordered(&query, None, BY_ID);
+        assert_eq!(path, "/v1/entries");
+        let map = params_map(&params);
+        assert_eq!(map["order"], ["id"]);
+        assert_eq!(map["direction"], ["asc"]);
+        assert_eq!(map["limit"], ["200"]);
+        assert_eq!(map["offset"], ["400"]);
+    }
+
+    #[test]
+    fn needle_folds_and_drops_blank_text() {
+        let q = |text: &str| EntryQuery {
+            q: Some(text.into()),
+            ..Default::default()
+        };
+        assert_eq!(needle(&q("  MODELÓS ")).as_deref(), Some("modelos"));
+        assert_eq!(needle(&q("   ")), None);
+        assert_eq!(needle(&EntryQuery::default()), None);
+    }
+
+    #[test]
+    fn search_reads_the_original_and_the_translated_title() {
+        let mut e = entry();
+        e.title = "Knowledge cutoff".into();
+        let translated = TitleInfo {
+            title: Some("Corte de conocimiento".into()),
+            lang: Some("en".into()),
+        };
+        assert!(title_matches(&e, Some(&translated), "conocimiento"));
+        assert!(title_matches(&e, None, "knowledge"));
+        assert!(!title_matches(&e, None, "conocimiento"));
+        // La clave no se busca en el contenido del artículo.
+        e.content = "conocimiento".into();
+        assert!(!title_matches(&e, None, "conocimiento"));
+    }
+
+    #[test]
     fn query_string_parses() {
         let uri: axum::http::Uri = "/api/entries?view=starred&feed_id=1&limit=10"
             .parse()
@@ -466,6 +678,7 @@ mod tests {
             ("GET", "/api/entries"),
             ("GET", "/api/entries/1"),
             ("PATCH", "/api/entries/1"),
+            ("POST", "/api/entries/mark-all-as-read"),
         ] {
             let req = Request::builder()
                 .method(method)

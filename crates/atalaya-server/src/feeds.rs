@@ -24,6 +24,8 @@ use crate::{
     error::{AppError, AppResult},
     feed_stats::{EntrySample, FeedStats, SAMPLE},
     miniflux::Miniflux,
+    papers::saved::FEED_URL,
+    stats_cache::StatsCache,
 };
 
 /// Tiempo máximo para descargar un feed encontrado y calcular sus datos.
@@ -67,7 +69,8 @@ async fn list_feeds(State(state): State<AppState>) -> AppResult<Json<Vec<Feed>>>
     let mut tasks = JoinSet::new();
     for feed in feeds {
         let miniflux = state.miniflux.clone();
-        tasks.spawn(async move { miniflux.with_stats(feed).await });
+        let cache = state.stats.clone();
+        tasks.spawn(async move { miniflux.with_stats(feed, &cache).await });
     }
     let mut feeds: Vec<Feed> = tasks.join_all().await;
     feeds.sort_by_cached_key(|f| (f.category.title.to_lowercase(), f.title.to_lowercase()));
@@ -84,11 +87,12 @@ async fn create_feed(
         .create_feed(&feed_url, req.category_id, req.crawler)
         .await
         .map_err(remote_error)?;
+    state.stats.clear();
     state.translations.submit_new_feed(id);
     let feed = state.miniflux.feed(id).await?;
     Ok((
         StatusCode::CREATED,
-        Json(state.miniflux.with_stats(feed).await),
+        Json(state.miniflux.with_stats(feed, &state.stats).await),
     ))
 }
 
@@ -104,15 +108,14 @@ async fn update_feed(
         crawler: req.crawler,
     };
     let feed = state.miniflux.update_feed(id, &body).await?;
-    Ok(Json(state.miniflux.with_stats(feed).await))
+    state.stats.clear();
+    Ok(Json(state.miniflux.with_stats(feed, &state.stats).await))
 }
 
 async fn delete_feed(State(state): State<AppState>, Path(id): Path<Id>) -> AppResult<StatusCode> {
-    state
-        .miniflux
-        .delete(&format!("/v1/feeds/{id}"))
-        .await
-        .map(|()| StatusCode::NO_CONTENT)
+    state.miniflux.delete(&format!("/v1/feeds/{id}")).await?;
+    state.stats.clear();
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_categories(State(state): State<AppState>) -> AppResult<Json<Vec<Category>>> {
@@ -291,6 +294,7 @@ fn feed_from_miniflux(feed: MinifluxFeed, stats: FeedStats) -> Feed {
         message: feed.parsing_error_message.clone(),
         count: feed.parsing_error_count,
     });
+    let papers = feed.feed_url == FEED_URL;
     Feed {
         id: feed.id,
         title: feed.title,
@@ -303,6 +307,7 @@ fn feed_from_miniflux(feed: MinifluxFeed, stats: FeedStats) -> Feed {
         // Miniflux pone el año 1 a un feed que aún no ha comprobado.
         checked_at: feed.checked_at.filter(|d| d.year() > 1),
         error,
+        papers,
     }
 }
 
@@ -449,12 +454,20 @@ impl Miniflux {
 
     /// El feed de la API con su idioma y artículos al día. Si no se pueden
     /// leer sus artículos, lo devuelve sin esos datos.
-    async fn with_stats(&self, feed: MinifluxFeed) -> Feed {
+    /// El feed con sus estadísticas. Si la caché tiene unas recientes, no lee
+    /// los artículos otra vez. Un fallo no se guarda: se reintenta en la
+    /// siguiente carga.
+    async fn with_stats(&self, feed: MinifluxFeed, cache: &StatsCache) -> Feed {
+        if let Some(stats) = cache.get(feed.id) {
+            return feed_from_miniflux(feed, stats);
+        }
         let stats = match self.recent_entries(feed.id).await {
             Ok(entries) => {
                 let samples: Vec<EntrySample> = entries.into_iter().map(Into::into).collect();
                 let declared = Some(feed.language.as_str()).filter(|l| !l.is_empty());
-                FeedStats::compute(&samples, declared, Utc::now())
+                let stats = FeedStats::compute(&samples, declared, Utc::now());
+                cache.put(feed.id, stats.clone());
+                stats
             }
             Err(e) => {
                 tracing::warn!(
@@ -553,6 +566,16 @@ mod tests {
             })
         );
         assert_eq!(feed.checked_at, None);
+    }
+
+    #[test]
+    fn marks_only_the_papers_feed() {
+        let mf: MinifluxFeed = serde_json::from_str(MINIFLUX_FEED).unwrap();
+        assert!(!feed_from_miniflux(mf, FeedStats::default()).papers);
+        let json =
+            MINIFLUX_FEED.replace("http://www.aaronsw.com/2002/feeds/pgessays.rss", FEED_URL);
+        let mf: MinifluxFeed = serde_json::from_str(&json).unwrap();
+        assert!(feed_from_miniflux(mf, FeedStats::default()).papers);
     }
 
     #[test]

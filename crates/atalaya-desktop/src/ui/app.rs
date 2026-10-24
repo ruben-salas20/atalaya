@@ -3,7 +3,7 @@
 
 use atalaya_api::View;
 use gpui::prelude::*;
-use gpui::{Context, Entity, Subscription, Window, div};
+use gpui::{Context, Entity, FocusHandle, KeyDownEvent, Subscription, Window, div};
 use gpui_component::Theme;
 
 use crate::assets::FONT_FAMILY;
@@ -40,6 +40,9 @@ pub struct AppView {
     paper_search: Entity<PaperSearch>,
     paper_reader: Entity<PaperReader>,
     settings: Entity<SettingsScreen>,
+    /// Foco de la ventana entera. Sin un foco, GPUI no entrega las teclas a
+    /// la vista y Ctrl+F no llegaría.
+    focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -54,6 +57,8 @@ impl AppView {
         let settings = cx.new(|cx| SettingsScreen::new(window, cx));
         let paper_search = cx.new(|cx| PaperSearch::new(window, cx));
         let paper_reader = cx.new(|_| PaperReader::default());
+        let focus = cx.focus_handle();
+        window.focus(&focus, cx);
 
         let subscriptions = vec![
             cx.observe_global::<FontSize>(|this, cx| {
@@ -150,15 +155,24 @@ impl AppView {
             paper_search,
             paper_reader,
             settings,
+            focus,
             _subscriptions: subscriptions,
         }
     }
 }
 
 impl Render for AppView {
-    fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = Palette::of(window);
         let root = div()
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                let keys = &event.keystroke;
+                if this.screen == Screen::Reading && keys.modifiers.control && keys.key == "f" {
+                    this.entry_list
+                        .update(cx, |list, cx| list.toggle_search(window, cx));
+                }
+            }))
             .size_full()
             .flex()
             .bg(p.bg)
