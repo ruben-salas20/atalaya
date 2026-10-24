@@ -13,6 +13,7 @@ use serde::de::DeserializeOwned;
 /// Un artículo abierto que no está en Guardados se borra pasado este tiempo.
 const ENTRY_MAX_AGE: Duration = Duration::from_secs(30 * 24 * 3600);
 
+#[derive(Clone)]
 pub struct Cache {
     dir: PathBuf,
 }
@@ -23,7 +24,11 @@ impl Cache {
             Some(dir) if !dir.is_empty() => PathBuf::from(dir),
             _ => PathBuf::from(std::env::var_os("HOME")?).join(".cache"),
         };
-        let dir = base.join("atalaya");
+        Self::at(base.join("atalaya"))
+    }
+
+    /// Una copia en `dir`, que se crea si no existe.
+    pub fn at(dir: PathBuf) -> Option<Self> {
         fs::create_dir_all(dir.join("entries")).ok()?;
         Some(Self { dir })
     }
