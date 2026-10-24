@@ -1,6 +1,6 @@
 # PRD de Atalaya
 
-Atalaya es un lector RSS personal que traduce al español lo que llega en otros idiomas. Tiene una app de Android y una de PC. Este documento dice **qué** hace y **para quién**. El **porqué** de cada decisión técnica está en `docs/adr/`, y el **orden de trabajo**, en `docs/plan.md`.
+Atalaya es un lector RSS personal que traduce al español lo que llega en otros idiomas. Tiene una app de Android y una de PC. Este documento dice **qué** hace y **para quién**. El **porqué** de cada decisión técnica está en `docs/adr/`, y el **trabajo pendiente**, en las issues de GitHub. `docs/plan.md` cuenta cómo se construyó.
 
 Este documento solo cambia con la aprobación de Rubén.
 
@@ -31,7 +31,7 @@ Una sola persona: Rubén. La app es personal y no se publica.
 
 ## Requisitos
 
-Cada requisito tiene un código para citarlo desde el plan.
+Cada requisito tiene un código para citarlo desde las issues.
 
 ### Lectura
 

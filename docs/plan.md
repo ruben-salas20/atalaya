@@ -1,6 +1,8 @@
 # Plan de Atalaya
 
-El plan va en fases, y cada fase en pasos. **Cada fase es una sesión**: un orquestador en la rama `fase-N` reparte los pasos entre subagentes y termina con un PR a `main`. Cada paso termina en algo que se comprueba. La fase en curso es la primera con casillas sin marcar; las fases 3 y 5a pueden ir a la vez, cada una en su sesión. Cómo se trabaja está en `AGENTS.md`.
+> **Plan terminado el 2026-10-23.** Las fases 0 a 5b están hechas. La fase 6 y lo que quedó pendiente en los PR pasaron a las [issues de GitHub](https://github.com/ruben-salas20/atalaya/issues): desde ahora, cada sesión trabaja en una issue, como dice `AGENTS.md`. Este archivo queda como historia del proyecto y ya no se cambia.
+
+El plan va en fases, y cada fase en pasos. **Cada fase era una sesión**: un orquestador en la rama `fase-N` repartía los pasos entre subagentes y terminaba con un PR a `main`. Cada paso terminaba en algo que se comprueba. Las fases 3 y 5a fueron a la vez, cada una en su sesión.
 
 La línea **Reparto** de cada fase dice qué pasos hace el orquestador y cuáles pueden ir en paralelo. Los pasos entre corchetes del mismo grupo van a la vez; los grupos, uno detrás de otro.
 
@@ -15,7 +17,7 @@ Los códigos entre corchetes, como [L4], son requisitos de `docs/PRD.md`.
 | 4. Papers | Buscar en arXiv en español y guardar papers |
 | 5a. App de PC: lectura y feeds | Leer y gestionar feeds en el portátil, con GPUI. Puede ir a la vez que la fase 3 |
 | 5b. App de PC: papers y sin conexión | Lo que falta del PC, cuando estén las fases 3 y 4 |
-| 6. Extras | Analizar paper completo, traducción local, chino y TranslateGemma |
+| 6. Extras | Pasó a las issues #13 a #16 |
 
 ---
 
@@ -121,21 +123,15 @@ Empieza cuando estén hechas las fases 3 y 4: usa la búsqueda de papers de la f
 
 ## Fase 6. Extras
 
-Cada paso termina en una propuesta para Rubén, no en código. Si la aprueba, se escribe su ADR y se añaden pasos al plan.
-
-**Reparto:** 6.1 un subagente. 6.2, 6.3 y 6.4 el orquestador, de uno en uno, porque usan el móvil y la GPU.
-
-- [ ] **6.1 Paper completo.** Investigar la versión HTML de arXiv frente al PDF, y cómo mostrar fórmulas y tablas. Hecho cuando hay una propuesta con prueba sobre 3 papers reales.
-- [ ] **6.2 Traducción local de respaldo.** Investigar ML Kit en Android. Hecho cuando hay una propuesta con calidad y tamaño medidos.
-- [ ] **6.3 Chino al español.** Probar el modelo de la fase 1 con textos en chino. Hecho cuando hay una propuesta con 10 traducciones de ejemplo.
-- [ ] **6.4 TranslateGemma 4B.** Medir esta Gemma ajustada para traducir con el conjunto de `bench/traduccion/`, igual que Gemma 4 E4B en el paso 1.2 (ADR 0009). Hecho cuando hay una propuesta con sus medidas y sus traducciones junto a las de Gemma 4 E4B en `docs/traduccion.md`.
+Sus cuatro pasos pasaron a issues con la etiqueta `investigación`: 6.1 es la #13, 6.2 la #14, 6.3 la #15 y 6.4 la #16.
 
 ---
 
 ## Bitácora
 
-Una línea por sesión, la más reciente arriba. Se guardan las 10 últimas.
+Una línea por sesión, la más reciente arriba. Se guardaban las 10 últimas. Ya no se añaden líneas: cada issue guarda su propia historia.
 
+- 2026-10-23 · cierre · hecha · Plan terminado. Fase 6 y pendientes de los PR #1 a #12 pasados a las issues #13 a #27. Siguiente: una issue.
 - 2026-10-23 · fase 5b · hecha · Papers en el PC, caché sin red e instalador; entrada del lanzador validada, sin abrirla en pantalla. PC y móvil coinciden. Siguiente: fase 6.
 - 2026-10-23 · fase 4 · hecha · Papers de arXiv: búsqueda traducida y por identificador, apertura y guardado; ocultos al dejar de guardarlos. Probado en el A35. Siguiente: fase 5b.
 - 2026-10-23 · fase 5a · hecha · App de PC con GPUI: lista, lectura traducida, leído y guardado, feeds, carpetas y ajustes. Pruebas en sway sin pantalla. Siguiente: fase 4.
