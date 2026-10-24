@@ -1,6 +1,5 @@
 package dev.rubensalas.atalaya.data.list
 
-import dev.rubensalas.atalaya.data.api.AtalayaClient
 import dev.rubensalas.atalaya.data.api.Entry
 import dev.rubensalas.atalaya.data.api.EntryPage
 import dev.rubensalas.atalaya.data.api.EntryQuery
@@ -8,7 +7,6 @@ import dev.rubensalas.atalaya.data.api.EntrySummary
 import dev.rubensalas.atalaya.data.api.EntryUpdate
 import dev.rubensalas.atalaya.data.api.Id
 import dev.rubensalas.atalaya.data.api.Sidebar
-import dev.rubensalas.atalaya.data.settings.SettingsRepository
 
 /**
  * De dónde sacan la lista y el artículo sus datos. La app usa
@@ -38,16 +36,3 @@ interface ListRepository {
     suspend fun markSynced()
 }
 
-/** Solo el servicio, sin guardar nada. Útil para probar sin Room. */
-class RemoteListRepository(
-    private val client: AtalayaClient,
-    private val settings: SettingsRepository,
-) : ListRepository {
-    override suspend fun sidebar(): Sidebar = client.sidebar()
-    override suspend fun entries(query: EntryQuery): EntryPage = client.entries(query)
-    override suspend fun entry(id: Id): Entry = client.entry(id)
-    override suspend fun updateEntry(id: Id, update: EntryUpdate): EntrySummary = client.updateEntry(id, update)
-    override suspend fun markSynced() {
-        settings.markSynced()
-    }
-}

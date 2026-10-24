@@ -1,6 +1,7 @@
 package dev.rubensalas.atalaya.ui.settings
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -32,7 +33,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -47,6 +47,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -266,6 +268,7 @@ private fun SettingItem(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FontScaleSlider(value: Float, onChange: (Float) -> Unit) {
     // El valor se guarda al soltar, para no escribir en disco en cada píxel.
@@ -281,12 +284,21 @@ private fun FontScaleSlider(value: Float, onChange: (Float) -> Unit) {
             onValueChange = { current = it },
             onValueChangeFinished = { onChange(current) },
             valueRange = Settings.MIN_FONT_SCALE..Settings.MAX_FONT_SCALE,
-            colors = SliderDefaults.colors(
-                thumbColor = Atalaya.colors.accent,
-                activeTrackColor = Atalaya.colors.accent,
-                inactiveTrackColor = Atalaya.colors.surface2,
-            ),
             modifier = Modifier.weight(1f),
+            thumb = {
+                Box(Modifier.size(18.dp).background(Atalaya.colors.accent, CircleShape))
+            },
+            track = { state ->
+                val range = state.valueRange
+                val fraction = (state.value - range.start) / (range.endInclusive - range.start)
+                val active = Atalaya.colors.accent
+                val inactive = Atalaya.colors.surface2
+                Canvas(Modifier.fillMaxWidth().height(4.dp)) {
+                    val radius = CornerRadius(size.height / 2)
+                    drawRoundRect(inactive, cornerRadius = radius)
+                    drawRoundRect(active, size = Size(size.width * fraction, size.height), cornerRadius = radius)
+                }
+            },
         )
         Text("A", fontSize = 20.sp)
     }
