@@ -133,6 +133,10 @@ impl AppView {
                     EntryListEvent::Refreshed => {
                         this.sidebar.update(cx, |sidebar, cx| sidebar.reload(cx));
                     }
+                    EntryListEvent::Changed(entry) => {
+                        this.reader.update(cx, |reader, cx| reader.sync(entry, cx));
+                        this.sidebar.update(cx, |sidebar, cx| sidebar.reload(cx));
+                    }
                 },
             ),
             cx.subscribe(&reader, |this, _, event: &ReaderEvent, cx| match event {

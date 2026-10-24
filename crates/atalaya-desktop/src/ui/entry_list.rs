@@ -1,9 +1,10 @@
 //! Columna 2: la lista de artículos (L2, L3), con `GET /api/entries`.
 
-use atalaya_api::{EntryPage, EntrySummary, Id, View};
+use atalaya_api::{EntryPage, EntrySummary, EntryUpdate, Id, View};
 use chrono::Utc;
 use gpui::prelude::*;
 use gpui::{Context, ElementId, EventEmitter, FontWeight, Task, Window, div, px, relative};
+use gpui_component::menu::{ContextMenuExt, PopupMenuItem};
 use gpui_component::scroll::ScrollableElement;
 
 use crate::assets::Icon;
@@ -16,6 +17,9 @@ pub enum EntryListEvent {
     Selected(EntrySummary),
     /// Se pulsó «Actualizar»: el menú lateral también debe recargarse.
     Refreshed,
+    /// Cambió leído o guardado desde el menú de clic derecho: el menú
+    /// lateral y el lector deben reflejarlo.
+    Changed(EntrySummary),
 }
 
 enum Load {
@@ -31,6 +35,8 @@ pub struct EntryList {
     total: u64,
     selected: Option<Id>,
     load: Load,
+    /// Fallo al marcar desde el menú de clic derecho.
+    action_error: Option<String>,
     _load: Task<()>,
 }
 
@@ -44,6 +50,7 @@ impl EntryList {
             total: 0,
             selected: None,
             load: Load::Idle,
+            action_error: None,
             _load: Task::ready(()),
         };
         this.fetch(0, cx);
@@ -122,6 +129,44 @@ impl EntryList {
         }
     }
 
+    /// Marca leído o guardado desde el menú de clic derecho (#31). La fila
+    /// cambia al momento y vuelve atrás si el servicio falla.
+    fn change(&mut self, before: EntrySummary, update: EntryUpdate, cx: &mut Context<Self>) {
+        let client = match super::client(cx) {
+            Ok(client) => client,
+            Err(error) => {
+                self.action_error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
+        let mut after = before.clone();
+        after.read = update.read.unwrap_or(after.read);
+        after.starred = update.starred.unwrap_or(after.starred);
+        self.action_error = None;
+        self.update_entry(&after, cx);
+        cx.emit(EntryListEvent::Changed(after));
+        cx.spawn(async move |this, cx| {
+            let current = before.clone();
+            let result = cx
+                .background_spawn(async move { client.update_entry(&current, &update) })
+                .await;
+            this.update(cx, |this, cx| {
+                let summary = match result {
+                    Ok(summary) => summary,
+                    Err(error) => {
+                        this.action_error = Some(error);
+                        before
+                    }
+                };
+                this.update_entry(&summary, cx);
+                cx.emit(EntryListEvent::Changed(summary));
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     fn select(&mut self, entry: EntrySummary, cx: &mut Context<Self>) {
         self.selected = Some(entry.id);
         cx.emit(EntryListEvent::Selected(entry));
@@ -138,6 +183,8 @@ impl EntryList {
         );
         let hover = p.surface;
         let clicked = entry.clone();
+        let menu_entry = entry.clone();
+        let list = cx.entity().downgrade();
         div()
             .id(ElementId::NamedInteger("entry".into(), entry.id as u64))
             .relative()
@@ -189,6 +236,40 @@ impl EntryList {
                     }),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(clicked.clone(), cx)))
+            .context_menu(move |menu, _, _| {
+                let entry = menu_entry.clone();
+                let item = |label: &'static str, update: EntryUpdate| {
+                    let (list, entry) = (list.clone(), entry.clone());
+                    PopupMenuItem::new(label).on_click(move |_, _, cx| {
+                        list.update(cx, |list, cx| {
+                            list.change(entry.clone(), update.clone(), cx)
+                        })
+                        .ok();
+                    })
+                };
+                menu.item(item(
+                    if entry.starred {
+                        "Quitar de guardados"
+                    } else {
+                        "Guardar"
+                    },
+                    EntryUpdate {
+                        starred: Some(!entry.starred),
+                        ..Default::default()
+                    },
+                ))
+                .item(item(
+                    if entry.read {
+                        "Marcar como no leído"
+                    } else {
+                        "Marcar como leído"
+                    },
+                    EntryUpdate {
+                        read: Some(!entry.read),
+                        ..Default::default()
+                    },
+                ))
+            })
     }
 
     /// Mensaje en el hueco de la lista: cargando, error o vacía.
@@ -294,6 +375,18 @@ impl Render for EntryList {
                         )),
                     ),
             )
+            .when_some(self.action_error.clone(), |d, error| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .px(px(18.))
+                        .py(px(8.))
+                        .text_size(px(13.))
+                        .text_color(p.text2)
+                        .bg(p.surface)
+                        .child(error),
+                )
+            })
             .child(
                 div()
                     .id("entries")

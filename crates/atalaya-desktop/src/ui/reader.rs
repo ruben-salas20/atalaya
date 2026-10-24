@@ -93,6 +93,14 @@ impl Reader {
         cx.notify();
     }
 
+    /// Otro sitio (la lista) cambió leído o guardado: si es el artículo
+    /// abierto, los botones de la barra lo reflejan.
+    pub fn sync(&mut self, summary: &EntrySummary, cx: &mut Context<Self>) {
+        if self.summary.as_ref().map(|s| s.id) == Some(summary.id) {
+            self.set_summary(summary.clone(), cx);
+        }
+    }
+
     pub fn clear(&mut self, cx: &mut Context<Self>) {
         self.summary = None;
         self.load = Load::Loading;
