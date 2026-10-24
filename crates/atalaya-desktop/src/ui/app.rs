@@ -3,15 +3,16 @@
 
 use atalaya_api::View;
 use gpui::prelude::*;
-use gpui::{Context, Entity, Subscription, Window, div};
+use gpui::{Context, Entity, FocusHandle, Subscription, Window, div, px};
 use gpui_component::Theme;
 
 use crate::assets::FONT_FAMILY;
 use crate::palette::Palette;
-use crate::settings::FontSize;
+use crate::settings::{FontSize, Settings};
 use crate::ui::Connection;
 use crate::ui::entry_list::{EntryList, EntryListEvent};
 use crate::ui::feeds::{FeedsEvent, FeedsScreen};
+use crate::ui::panels::{Panels, ToggleList, ToggleSidebar};
 use crate::ui::papers::reader::{PaperReader, PaperReaderEvent};
 use crate::ui::papers::search::{PaperSearch, PaperSearchEvent};
 use crate::ui::reader::{Reader, ReaderEvent};
@@ -33,6 +34,13 @@ pub enum Screen {
 
 pub struct AppView {
     screen: Screen,
+    /// Qué columnas de la pantalla de lectura están plegadas.
+    panels: Panels,
+    /// Ancho de la ventana en el último cambio de tamaño.
+    width: f32,
+    /// Sin foco, GPUI solo manda las teclas a la raíz de la ventana y los
+    /// atajos de los paneles no llegarían aquí.
+    focus: FocusHandle,
     sidebar: Entity<Sidebar>,
     entry_list: Entity<EntryList>,
     reader: Entity<Reader>,
@@ -139,10 +147,22 @@ impl AppView {
             cx.observe_window_appearance(window, |_, window, cx| {
                 Theme::change(window.appearance(), Some(window), cx);
             }),
+            cx.observe_window_bounds(window, |this, window, cx| {
+                let width = f32::from(window.viewport_size().width);
+                this.panels.resized(this.width, width);
+                this.width = width;
+                cx.notify();
+            }),
         ];
 
+        let saved = Settings::read().unwrap_or_default();
+        let focus = cx.focus_handle();
+        window.focus(&focus, cx);
         Self {
+            focus,
             screen: Screen::Reading,
+            panels: Panels::new(saved.sidebar_folded, saved.list_folded),
+            width: f32::from(window.viewport_size().width),
             sidebar,
             entry_list,
             reader,
@@ -155,20 +175,60 @@ impl AppView {
     }
 }
 
+impl AppView {
+    /// Pliega o despliega una columna y guarda la elección. Solo en la
+    /// pantalla de lectura: en las demás el menú es la única forma de salir.
+    fn toggle_panel(&mut self, change: impl FnOnce(&mut Panels, f32), cx: &mut Context<Self>) {
+        if self.screen != Screen::Reading {
+            return;
+        }
+        change(&mut self.panels, self.width);
+        let (sidebar_folded, list_folded) = (self.panels.sidebar_folded, self.panels.list_folded);
+        if let Err(error) = Settings::update(|s| {
+            s.sidebar_folded = sidebar_folded;
+            s.list_folded = list_folded;
+        }) {
+            eprintln!("atalaya: {error}");
+        }
+        cx.notify();
+    }
+}
+
 impl Render for AppView {
-    fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = Palette::of(window);
-        let root = div()
-            .size_full()
-            .flex()
-            .bg(p.bg)
-            .text_color(p.text)
-            .font_family(FONT_FAMILY)
-            .text_size(gpui::px(14.))
-            .child(self.sidebar.clone());
+        let layout = self.panels.layout(self.width);
+        let root =
+            div()
+                .size_full()
+                .flex()
+                .bg(p.bg)
+                .text_color(p.text)
+                .font_family(FONT_FAMILY)
+                .text_size(gpui::px(14.))
+                .track_focus(&self.focus)
+                .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
+                    this.toggle_panel(Panels::toggle_sidebar, cx)
+                }))
+                .on_action(cx.listener(|this, _: &ToggleList, _, cx| {
+                    this.toggle_panel(Panels::toggle_list, cx)
+                }))
+                .when(
+                    self.screen != Screen::Reading || layout.sidebar.is_some(),
+                    |d| d.child(self.sidebar.clone()),
+                );
         match self.screen {
             Screen::Reading => root
-                .child(self.entry_list.clone())
+                .when_some(layout.list, |d, width| {
+                    d.child(
+                        div()
+                            .w(px(width))
+                            .h_full()
+                            .flex_none()
+                            .min_w_0()
+                            .child(self.entry_list.clone()),
+                    )
+                })
                 .child(self.reader.clone()),
             Screen::Papers => root
                 .child(self.paper_search.clone())

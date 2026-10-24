@@ -237,10 +237,9 @@ impl Render for EntryList {
             .iter()
             .map(|entry| self.row(entry, &p, cx).into_any_element())
             .collect();
+        // El ancho lo pone `AppView`, que sabe cuánto cabe (`ui::panels`).
         div()
-            .w(px(360.))
-            .h_full()
-            .flex_none()
+            .size_full()
             .flex()
             .flex_col()
             .min_w_0()

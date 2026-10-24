@@ -10,6 +10,7 @@ use gpui::{Context, ElementId, EventEmitter, FontWeight, SharedString, Task, Win
 use crate::assets::Icon;
 use crate::palette::Palette;
 use crate::ui::app::Screen;
+use crate::ui::panels::SIDEBAR_WIDTH;
 use crate::ui::widgets::icon;
 
 /// De dónde sale la lista de artículos.
@@ -348,7 +349,7 @@ impl Render for Sidebar {
         let counts = self.data.as_ref().map(|d| (d.total, d.unread, d.starred));
         let categories = self.categories(&p, cx);
         div()
-            .w(px(240.))
+            .w(px(SIDEBAR_WIDTH))
             .h_full()
             .flex_none()
             .flex()

@@ -10,13 +10,14 @@ mod ui;
 use std::sync::Arc;
 
 use gpui::prelude::*;
-use gpui::{App, Bounds, WindowBounds, WindowDecorations, WindowOptions, px, size};
+use gpui::{App, Bounds, KeyBinding, WindowBounds, WindowDecorations, WindowOptions, px, size};
 use gpui_component::{Root, Theme};
 
 use crate::client::ApiClient;
 use crate::settings::{FontSize, Settings};
 use crate::ui::Connection;
 use crate::ui::app::AppView;
+use crate::ui::panels::{ToggleList, ToggleSidebar};
 
 fn main() {
     let settings = Settings::read();
@@ -41,6 +42,10 @@ fn main() {
             Theme::update(cx, |theme| theme.font_family = assets::FONT_FAMILY.into());
             cx.set_global(Connection(connection));
             cx.set_global(FontSize(font_size));
+            cx.bind_keys([
+                KeyBinding::new("ctrl-b", ToggleSidebar, None),
+                KeyBinding::new("ctrl-shift-b", ToggleList, None),
+            ]);
 
             let bounds = Bounds::centered(None, size(px(1200.), px(740.)), cx);
             let options = WindowOptions {

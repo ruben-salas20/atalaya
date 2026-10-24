@@ -28,6 +28,11 @@ pub struct Settings {
     /// Tamaño de letra del texto del artículo, en px.
     #[serde(default = "default_font_size")]
     pub font_size: u32,
+    /// El usuario plegó el menú lateral o la lista (ver `ui::panels`).
+    #[serde(default)]
+    pub sidebar_folded: bool,
+    #[serde(default)]
+    pub list_folded: bool,
 }
 
 fn default_font_size() -> u32 {
@@ -40,6 +45,8 @@ impl Default for Settings {
             service_url: String::new(),
             api_key: String::new(),
             font_size: DEFAULT_FONT_SIZE,
+            sidebar_folded: false,
+            list_folded: false,
         }
     }
 }
@@ -51,6 +58,8 @@ impl fmt::Debug for Settings {
             .field("service_url", &self.service_url)
             .field("api_key", &"<oculta>")
             .field("font_size", &self.font_size)
+            .field("sidebar_folded", &self.sidebar_folded)
+            .field("list_folded", &self.list_folded)
             .finish()
     }
 }
@@ -94,6 +103,15 @@ impl Settings {
         let path = Self::path().ok_or("No se sabe cuál es la carpeta de configuración")?;
         self.save_to(&path)
             .map_err(|e| format!("No se pudo guardar {}: {e}", path.display()))
+    }
+
+    /// Lee el archivo, aplica `change` y lo guarda. Así cada pantalla cambia
+    /// solo lo suyo sin borrar lo que guardó otra.
+    pub fn update(change: impl FnOnce(&mut Self)) -> Result<Self, String> {
+        let mut settings = Self::read().unwrap_or_default();
+        change(&mut settings);
+        settings.save()?;
+        Ok(settings)
     }
 
     fn save_to(&self, path: &Path) -> std::io::Result<()> {
@@ -158,7 +176,7 @@ mod tests {
         let s = Settings {
             service_url: "https://x.dev".into(),
             api_key: "secreta".into(),
-            font_size: 17,
+            ..Default::default()
         };
         assert!(!format!("{s:?}").contains("secreta"));
     }
@@ -171,6 +189,8 @@ mod tests {
             service_url: "https://x.dev".into(),
             api_key: "k".into(),
             font_size: 20,
+            sidebar_folded: true,
+            list_folded: false,
         };
         s.save_to(&path).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;

@@ -22,6 +22,7 @@ use gpui_component::tooltip::Tooltip;
 use crate::assets::Icon;
 use crate::palette::Palette;
 use crate::ui::format::ago;
+use crate::ui::panels;
 use crate::ui::widgets::{bar, icon, icon_button};
 
 /// Cada cuánto se vuelve a pedir un artículo que se está traduciendo.
@@ -220,6 +221,7 @@ impl Reader {
         bar(p)
             .px(px(12.))
             .gap(px(4.))
+            .child(panels::buttons(p).mr(px(6.)))
             .child(
                 div()
                     .flex()
@@ -495,15 +497,18 @@ impl Render for Reader {
             .flex_col()
             .relative();
         let Some(summary) = self.summary.clone() else {
-            return column.child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_color(p.text3)
-                    .child("Elige un artículo de la lista"),
-            );
+            // La barra queda para poder desplegar la lista y elegir uno.
+            return column
+                .child(bar(&p).px(px(12.)).child(panels::buttons(&p)))
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_color(p.text3)
+                        .child("Elige un artículo de la lista"),
+                );
         };
         let pending =
             matches!(&self.load, Load::Ready(e) if e.translation == TranslationState::Pending);
