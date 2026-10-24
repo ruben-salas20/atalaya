@@ -21,8 +21,8 @@ use gpui_component::tooltip::Tooltip;
 
 use crate::assets::Icon;
 use crate::palette::Palette;
-use crate::ui::format::ago;
-use crate::ui::widgets::{bar, icon, icon_button};
+use crate::ui::format::{ago_phrase, code_in_pre};
+use crate::ui::widgets::{bar, icon, icon_button, more_menu};
 
 /// Cada cuánto se vuelve a pedir un artículo que se está traduciendo.
 const POLL_EVERY: Duration = Duration::from_secs(3);
@@ -79,9 +79,8 @@ impl Reader {
         self.action_error = None;
         self.fetch(id, Duration::ZERO, cx);
         // Abrir marca como leído; el botón de la barra sirve para deshacerlo.
-        // Sin red no se intenta: solo daría un error al leer la copia.
-        let online = super::client(cx).is_ok_and(|client| !client.is_offline());
-        if unread && online {
+        // Sin red se guarda el cambio y se manda al volver la red.
+        if unread {
             self.update(
                 EntryUpdate {
                     read: Some(true),
@@ -91,6 +90,14 @@ impl Reader {
             );
         }
         cx.notify();
+    }
+
+    /// Otro sitio (la lista) cambió leído o guardado: si es el artículo
+    /// abierto, los botones de la barra lo reflejan.
+    pub fn sync(&mut self, summary: &EntrySummary, cx: &mut Context<Self>) {
+        if self.summary.as_ref().map(|s| s.id) == Some(summary.id) {
+            self.set_summary(summary.clone(), cx);
+        }
     }
 
     pub fn clear(&mut self, cx: &mut Context<Self>) {
@@ -168,9 +175,10 @@ impl Reader {
         // Sin guardar la tarea: pulsar leído y guardar seguidos no debe
         // cancelar la primera petición.
         let id = before.id;
+        let current = before.clone();
         cx.spawn(async move |this, cx| {
             let result = cx
-                .background_spawn(async move { client.update_entry(id, &update) })
+                .background_spawn(async move { client.update_entry(&current, &update) })
                 .await;
             this.update(cx, |this, cx| {
                 let current = this.summary.as_ref().map(|s| s.id) == Some(id);
@@ -283,8 +291,12 @@ impl Reader {
             .child(
                 icon_button("open", Icon::Open, p)
                     .tooltip(|window, cx| Tooltip::new("Abrir en el navegador").build(window, cx))
-                    .on_click(move |_, _, cx| cx.open_url(&url)),
+                    .on_click({
+                        let url = url.clone();
+                        move |_, _, cx| cx.open_url(&url)
+                    }),
             )
+            .child(more_menu("more", url))
     }
 
     fn segment(
@@ -325,7 +337,7 @@ impl Reader {
         if let Some(author) = author.filter(|a| !a.trim().is_empty()) {
             parts.push(author.trim().to_owned());
         }
-        parts.push(format!("hace {}", ago(summary.published_at, Utc::now())));
+        parts.push(ago_phrase(summary.published_at, Utc::now()));
         parts.join(" · ")
     }
 
@@ -390,11 +402,11 @@ impl Reader {
 
         let body = match (&self.load, entry) {
             (_, Some(entry)) => {
-                let html = if spanish {
-                    entry.translated_content.clone().unwrap_or_default()
+                let html = code_in_pre(if spanish {
+                    entry.translated_content.as_deref().unwrap_or_default()
                 } else {
-                    entry.content.clone()
-                };
+                    &entry.content
+                });
                 let id = SharedString::from(format!("body-{}-{}", summary.id, spanish));
                 div()
                     .text_size(body_size)

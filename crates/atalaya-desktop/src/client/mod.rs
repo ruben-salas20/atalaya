@@ -12,11 +12,13 @@
 mod entries;
 mod feeds;
 mod papers;
+mod pending;
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
-use atalaya_api::{ApiError, Status};
+use atalaya_api::{ApiError, EntrySummary, Status};
 use reqwest::Method;
 use reqwest::blocking::{Client, RequestBuilder, Response};
 use serde::Serialize;
@@ -24,6 +26,7 @@ use serde::de::DeserializeOwned;
 
 use crate::cache::Cache;
 use crate::settings::Settings;
+use pending::Pending;
 
 /// Error listo para mostrar en la interfaz, en español.
 pub type ClientError = String;
@@ -36,6 +39,12 @@ pub struct ApiClient {
     /// `None` si no se pudo crear la carpeta: la app funciona igual, sin
     /// copia en disco.
     cache: Option<Cache>,
+    /// Cambios de leído o guardado que esperan a la red. Sin copia en disco
+    /// no hay cola, y un cambio sin red falla como antes.
+    pending: Option<Pending>,
+    /// Un solo envío de la cola a la vez. Una lectura o un cambio que llegue
+    /// en medio espera, para que el orden de los cambios se respete.
+    sending: Mutex<()>,
     /// La última petición no llegó al servicio y se respondió con la copia.
     offline: AtomicBool,
     /// Ya hay un hilo bajando los guardados.
@@ -46,6 +55,10 @@ pub struct ApiClient {
 /// con un error del servicio, no.
 struct Failure {
     network: bool,
+    /// Vale la pena repetir: falló la red o el servicio respondió 5xx (por
+    /// ejemplo, Caddy mientras el servicio se reinicia). Un cambio sin
+    /// enviar se queda en la cola en vez de perderse.
+    retry: bool,
     message: ClientError,
 }
 
@@ -61,11 +74,14 @@ impl ApiClient {
             .timeout(Duration::from_secs(20))
             .build()
             .map_err(|e| format!("No se pudo preparar el cliente HTTP: {e}"))?;
+        let cache = Cache::open();
         Ok(Self {
             http,
             base_url: settings.service_url.trim_end_matches('/').to_owned(),
             api_key: settings.api_key.clone(),
-            cache: Cache::open(),
+            pending: cache.clone().map(Pending::new),
+            sending: Mutex::new(()),
+            cache,
             offline: AtomicBool::new(false),
             caching_starred: AtomicBool::new(false),
         })
@@ -102,7 +118,8 @@ impl ApiClient {
     }
 
     /// `GET` que guarda la respuesta en disco con el nombre `key` si
-    /// `keep(&respuesta)`. Sin red, responde con lo guardado.
+    /// `keep(&respuesta)`. Sin red, responde con lo guardado. Antes manda los
+    /// cambios hechos sin red, para que la respuesta ya los incluya.
     pub(crate) fn get_cached<T, Q>(
         &self,
         key: &str,
@@ -114,9 +131,18 @@ impl ApiClient {
         T: DeserializeOwned + Serialize,
         Q: Serialize,
     {
+        // Sin red, la cola se manda después de la lectura y solo si esta
+        // llega: si no, cada lectura esperaría dos veces a que falle la red.
+        let was_offline = self.is_offline();
+        if !was_offline {
+            self.send_pending();
+        }
         match read_json(self.request(Method::GET, path).query(query).send()) {
             Ok(value) => {
                 self.offline.store(false, Ordering::Relaxed);
+                if was_offline {
+                    self.send_pending();
+                }
                 if let Some(cache) = self.cache.as_ref().filter(|_| keep(&value)) {
                     cache.store(key, &value);
                 }
@@ -135,6 +161,27 @@ impl ApiClient {
         }
     }
 
+    /// Manda la cola al servicio. Para en el primer fallo de red o 5xx, y el
+    /// cambio queda para la próxima vez. Otro error del servicio (un 404 de
+    /// un artículo borrado) descarta ese cambio, para que no bloquee a los
+    /// demás.
+    fn send_pending(&self) {
+        let Some(pending) = &self.pending else {
+            return;
+        };
+        let _turn = self.sending.lock().unwrap_or_else(PoisonError::into_inner);
+        for (id, update) in pending.all() {
+            match self.try_send_json::<EntrySummary, _>(
+                Method::PATCH,
+                &format!("/api/entries/{id}"),
+                &update,
+            ) {
+                Err(failure) if failure.retry => break,
+                _ => pending.forget(id, &update),
+            }
+        }
+    }
+
     /// `POST` o `PATCH` con cuerpo JSON y respuesta JSON.
     #[allow(dead_code)] // Lo usan los pasos 5.2 y 5.4.
     pub(crate) fn send_json<T: DeserializeOwned, B: Serialize>(
@@ -143,7 +190,17 @@ impl ApiClient {
         path: &str,
         body: &B,
     ) -> Result<T> {
-        Ok(read_json(self.request(method, path).json(body).send())?)
+        Ok(self.try_send_json(method, path, body)?)
+    }
+
+    /// Como `send_json`, pero dice si el fallo fue de red.
+    fn try_send_json<T: DeserializeOwned, B: Serialize>(
+        &self,
+        method: Method,
+        path: &str,
+        body: &B,
+    ) -> std::result::Result<T, Failure> {
+        read_json(self.request(method, path).json(body).send())
     }
 
     /// `DELETE` u otra petición sin cuerpo en la respuesta (204).
@@ -158,6 +215,7 @@ fn read_json<T: DeserializeOwned>(
 ) -> std::result::Result<T, Failure> {
     check(sent)?.json().map_err(|e| Failure {
         network: false,
+        retry: false,
         message: format!("El servicio respondió algo inesperado: {e}"),
     })
 }
@@ -166,6 +224,7 @@ fn read_json<T: DeserializeOwned>(
 fn check(sent: reqwest::Result<Response>) -> std::result::Result<Response, Failure> {
     let response = sent.map_err(|e| Failure {
         network: true,
+        retry: true,
         message: if e.is_timeout() {
             "El servicio tarda demasiado en responder".to_owned()
         } else {
@@ -186,6 +245,7 @@ fn check(sent: reqwest::Result<Response>) -> std::result::Result<Response, Failu
     };
     Err(Failure {
         network: false,
+        retry: status.is_server_error(),
         message,
     })
 }

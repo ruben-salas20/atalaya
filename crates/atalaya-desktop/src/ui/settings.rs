@@ -98,11 +98,13 @@ impl SettingsScreen {
 
     /// Los ajustes con lo que hay escrito en los campos.
     fn typed(&self, cx: &Context<Self>) -> Settings {
-        Settings {
-            service_url: self.url.read(cx).value().trim().to_owned(),
-            api_key: self.key.read(cx).value().trim().to_owned(),
-            font_size: self.saved.font_size,
-        }
+        // Lo que no está en esta pantalla, como los paneles plegados, sale
+        // del archivo: puede haber cambiado desde que se abrió.
+        let mut settings = Settings::read().unwrap_or_else(|_| self.saved.clone());
+        settings.service_url = self.url.read(cx).value().trim().to_owned();
+        settings.api_key = self.key.read(cx).value().trim().to_owned();
+        settings.font_size = self.saved.font_size;
+        settings
     }
 
     fn probe(&mut self, cx: &mut Context<Self>) {
@@ -151,12 +153,10 @@ impl SettingsScreen {
     }
 
     fn set_font_size(&mut self, size: u32, cx: &mut Context<Self>) {
-        let mut next = self.saved.clone();
-        next.font_size = size;
         cx.set_global(FontSize(size));
-        match next.save() {
-            Ok(()) => {
-                self.saved = next;
+        match Settings::update(|s| s.font_size = size) {
+            Ok(_) => {
+                self.saved.font_size = size;
                 self.notice = None;
             }
             Err(error) => self.notice = Some(Err(error)),

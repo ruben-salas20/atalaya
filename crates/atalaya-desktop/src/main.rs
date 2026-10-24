@@ -3,6 +3,7 @@
 mod assets;
 mod cache;
 mod client;
+mod images;
 mod palette;
 mod settings;
 mod ui;
@@ -10,13 +11,14 @@ mod ui;
 use std::sync::Arc;
 
 use gpui::prelude::*;
-use gpui::{App, Bounds, WindowBounds, WindowDecorations, WindowOptions, px, size};
+use gpui::{App, Bounds, KeyBinding, WindowBounds, WindowDecorations, WindowOptions, px, size};
 use gpui_component::{Root, Theme};
 
 use crate::client::ApiClient;
 use crate::settings::{FontSize, Settings};
 use crate::ui::Connection;
 use crate::ui::app::AppView;
+use crate::ui::panels::{ToggleList, ToggleSidebar};
 
 fn main() {
     let settings = Settings::read();
@@ -31,32 +33,42 @@ fn main() {
         eprintln!("atalaya: {error}");
     }
 
-    gpui_platform::application()
-        .with_assets(assets::Assets)
-        .run(move |cx: &mut App| {
-            if let Err(error) = assets::load_fonts(cx) {
-                eprintln!("atalaya: no se pudo cargar Roboto: {error}");
-            }
-            gpui_component::init(cx);
-            Theme::update(cx, |theme| theme.font_family = assets::FONT_FAMILY.into());
-            cx.set_global(Connection(connection));
-            cx.set_global(FontSize(font_size));
-
-            let bounds = Bounds::centered(None, size(px(1200.), px(740.)), cx);
-            let options = WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(900.), px(500.))),
-                // Hyprland no pone barra de título, y las maquetas tampoco.
-                window_decorations: Some(WindowDecorations::Server),
-                app_id: Some("atalaya".into()),
-                ..Default::default()
-            };
-            cx.open_window(options, |window, cx| {
-                Theme::change(window.appearance(), Some(window), cx);
-                let view = cx.new(|cx| AppView::new(window, cx));
-                cx.new(|cx| Root::new(view, window, cx))
-            })
-            .expect("no se pudo abrir la ventana");
-            cx.activate(true);
+    let mut app = gpui_platform::application().with_assets(assets::Assets);
+    match images::ImageClient::new() {
+        Some(client) => app = app.with_http_client(Arc::new(client)),
+        None => eprintln!("atalaya: no se pudo preparar la descarga de imágenes"),
+    }
+    app.run(move |cx: &mut App| {
+        if let Err(error) = assets::load_fonts(cx) {
+            eprintln!("atalaya: no se pudo cargar Roboto: {error}");
+        }
+        gpui_component::init(cx);
+        Theme::update(cx, |theme| {
+            theme.font_family = assets::FONT_FAMILY.into();
+            theme.mono_font_family = assets::MONO_FONT_FAMILY.into();
         });
+        cx.set_global(Connection(connection));
+        cx.set_global(FontSize(font_size));
+        cx.bind_keys([
+            KeyBinding::new("ctrl-b", ToggleSidebar, None),
+            KeyBinding::new("ctrl-shift-b", ToggleList, None),
+        ]);
+
+        let bounds = Bounds::centered(None, size(px(1200.), px(740.)), cx);
+        let options = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            window_min_size: Some(size(px(900.), px(500.))),
+            // Hyprland no pone barra de título, y las maquetas tampoco.
+            window_decorations: Some(WindowDecorations::Server),
+            app_id: Some("atalaya".into()),
+            ..Default::default()
+        };
+        cx.open_window(options, |window, cx| {
+            Theme::change(window.appearance(), Some(window), cx);
+            let view = cx.new(|cx| AppView::new(window, cx));
+            cx.new(|cx| Root::new(view, window, cx))
+        })
+        .expect("no se pudo abrir la ventana");
+        cx.activate(true);
+    });
 }

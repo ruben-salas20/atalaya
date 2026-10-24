@@ -1,7 +1,9 @@
 //! Archivos que van dentro del ejecutable: la letra Roboto y los iconos.
 //!
 //! Roboto 2.138 (Apache 2.0, ver `assets/fonts/roboto/LICENSE`) va incluida
-//! para no depender de que el sistema la tenga. Los iconos son los Material
+//! para no depender de que el sistema la tenga. Roboto Mono (SIL OFL 1.1, ver
+//! `assets/fonts/roboto-mono/OFL.txt`) es para el código de los artículos:
+//! la letra mono que pide GPUI en Linux, DejaVu Sans Mono, no siempre está. Los iconos son los Material
 //! de las maquetas (`docs/diseño/maquetas-pc.html`), también Apache 2.0.
 
 use std::borrow::Cow;
@@ -10,6 +12,7 @@ use gpui::{App, AssetSource, Result, SharedString};
 
 /// Nombre de la familia con la que se pide la letra.
 pub const FONT_FAMILY: &str = "Roboto";
+pub const MONO_FONT_FAMILY: &str = "Roboto Mono";
 
 const FONTS: &[&[u8]] = &[
     include_bytes!("../assets/fonts/roboto/Roboto-Regular.ttf"),
@@ -18,6 +21,7 @@ const FONTS: &[&[u8]] = &[
     include_bytes!("../assets/fonts/roboto/Roboto-MediumItalic.ttf"),
     include_bytes!("../assets/fonts/roboto/Roboto-Bold.ttf"),
     include_bytes!("../assets/fonts/roboto/Roboto-BoldItalic.ttf"),
+    include_bytes!("../assets/fonts/roboto-mono/RobotoMono-Regular.ttf"),
 ];
 
 pub fn load_fonts(cx: &App) -> Result<()> {

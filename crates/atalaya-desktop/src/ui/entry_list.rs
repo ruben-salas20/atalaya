@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use atalaya_api::{EntryPage, EntrySummary, Id};
+use atalaya_api::{EntryPage, EntrySummary, EntryUpdate, Id, View};
 use chrono::Utc;
 use gpui::prelude::*;
 use gpui::{
@@ -11,6 +11,7 @@ use gpui::{
 };
 use gpui_component::Sizable;
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::menu::{ContextMenuExt, PopupMenuItem};
 use gpui_component::scroll::ScrollableElement;
 
 use crate::assets::Icon;
@@ -26,6 +27,9 @@ pub enum EntryListEvent {
     Selected(EntrySummary),
     /// Se pulsó «Actualizar»: el menú lateral también debe recargarse.
     Refreshed,
+    /// Cambió leído o guardado desde el menú de clic derecho: el menú
+    /// lateral y el lector deben reflejarlo.
+    Changed(EntrySummary),
 }
 
 enum Load {
@@ -41,6 +45,8 @@ pub struct EntryList {
     total: u64,
     selected: Option<Id>,
     load: Load,
+    /// Fallo al marcar desde el menú de clic derecho.
+    action_error: Option<String>,
     _load: Task<()>,
     /// Campo de búsqueda, abierto con la lupa o con Ctrl+F.
     search: Option<Search>,
@@ -67,6 +73,7 @@ impl EntryList {
             total: 0,
             selected: None,
             load: Load::Idle,
+            action_error: None,
             _load: Task::ready(()),
             search: None,
             applied: String::new(),
@@ -226,10 +233,60 @@ impl EntryList {
     /// aunque ya no encaje en la vista, para no mover la lista al leer.
     pub fn update_entry(&mut self, summary: &EntrySummary, cx: &mut Context<Self>) {
         if let Some(entry) = self.entries.iter_mut().find(|e| e.id == summary.id) {
+            // La cifra del título cuenta los de la vista: en «Sin leer» baja
+            // al leer y en «Guardados» al quitar de guardados.
+            let counted = |e: &EntrySummary| match &self.source {
+                Source::View(View::Unread) => !e.read,
+                Source::View(View::Starred) => e.starred,
+                _ => true,
+            };
+            match (counted(entry), counted(summary)) {
+                (true, false) => self.total = self.total.saturating_sub(1),
+                (false, true) => self.total += 1,
+                _ => {}
+            }
             entry.read = summary.read;
             entry.starred = summary.starred;
             cx.notify();
         }
+    }
+
+    /// Marca leído o guardado desde el menú de clic derecho (#31). La fila
+    /// cambia al momento y vuelve atrás si el servicio falla.
+    fn change(&mut self, before: EntrySummary, update: EntryUpdate, cx: &mut Context<Self>) {
+        let client = match super::client(cx) {
+            Ok(client) => client,
+            Err(error) => {
+                self.action_error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
+        let mut after = before.clone();
+        after.read = update.read.unwrap_or(after.read);
+        after.starred = update.starred.unwrap_or(after.starred);
+        self.action_error = None;
+        self.update_entry(&after, cx);
+        cx.emit(EntryListEvent::Changed(after));
+        cx.spawn(async move |this, cx| {
+            let current = before.clone();
+            let result = cx
+                .background_spawn(async move { client.update_entry(&current, &update) })
+                .await;
+            this.update(cx, |this, cx| {
+                let summary = match result {
+                    Ok(summary) => summary,
+                    Err(error) => {
+                        this.action_error = Some(error);
+                        before
+                    }
+                };
+                this.update_entry(&summary, cx);
+                cx.emit(EntryListEvent::Changed(summary));
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn select(&mut self, entry: EntrySummary, cx: &mut Context<Self>) {
@@ -248,6 +305,8 @@ impl EntryList {
         );
         let hover = p.surface;
         let clicked = entry.clone();
+        let menu_entry = entry.clone();
+        let list = cx.entity().downgrade();
         div()
             .id(ElementId::NamedInteger("entry".into(), entry.id as u64))
             .relative()
@@ -299,6 +358,40 @@ impl EntryList {
                     }),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.select(clicked.clone(), cx)))
+            .context_menu(move |menu, _, _| {
+                let entry = menu_entry.clone();
+                let item = |label: &'static str, update: EntryUpdate| {
+                    let (list, entry) = (list.clone(), entry.clone());
+                    PopupMenuItem::new(label).on_click(move |_, _, cx| {
+                        list.update(cx, |list, cx| {
+                            list.change(entry.clone(), update.clone(), cx)
+                        })
+                        .ok();
+                    })
+                };
+                menu.item(item(
+                    if entry.starred {
+                        "Quitar de guardados"
+                    } else {
+                        "Guardar"
+                    },
+                    EntryUpdate {
+                        starred: Some(!entry.starred),
+                        ..Default::default()
+                    },
+                ))
+                .item(item(
+                    if entry.read {
+                        "Marcar como no leído"
+                    } else {
+                        "Marcar como leído"
+                    },
+                    EntryUpdate {
+                        read: Some(!entry.read),
+                        ..Default::default()
+                    },
+                ))
+            })
     }
 
     /// Mensaje en el hueco de la lista: cargando, error o vacía.
@@ -359,6 +452,7 @@ impl Render for EntryList {
             .iter()
             .map(|entry| self.row(entry, &p, cx).into_any_element())
             .collect();
+        // El ancho lo pone `AppView`, que sabe cuánto cabe (`ui::panels`).
         let title = match &self.search {
             Some(search) => div()
                 .flex_1()
@@ -390,9 +484,7 @@ impl Render for EntryList {
                 .into_any_element(),
         };
         div()
-            .w(px(360.))
-            .h_full()
-            .flex_none()
+            .size_full()
             .flex()
             .flex_col()
             .min_w_0()
@@ -427,6 +519,18 @@ impl Render for EntryList {
                         )
                     }),
             )
+            .when_some(self.action_error.clone(), |d, error| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .px(px(18.))
+                        .py(px(8.))
+                        .text_size(px(13.))
+                        .text_color(p.text2)
+                        .bg(p.surface)
+                        .child(error),
+                )
+            })
             .child(
                 div()
                     .id("entries")

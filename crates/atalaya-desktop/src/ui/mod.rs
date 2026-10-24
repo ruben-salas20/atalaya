@@ -6,6 +6,7 @@
 //! | `app.rs` | La ventana: elige qué pantalla va a la derecha del menú y conecta los eventos | 5.1 |
 //! | `sidebar.rs` | Columna 1: Todos, Sin leer, Guardados, carpetas, Feeds y Ajustes | 5.1 |
 //! | `entry_list.rs` | Columna 2: la lista de artículos | 5.1 |
+//! | `panels.rs` | Qué columnas caben y cómo se pliegan | #29 |
 //! | `reader.rs` | Columna 3: el artículo abierto | 5.2 |
 //! | `feeds.rs` | Pantalla 5: gestión de feeds | 5.4 |
 //! | `papers/` | Pantalla 4: buscar, abrir y guardar papers | 5.3 |
@@ -16,6 +17,7 @@ pub mod app;
 pub mod entry_list;
 pub mod feeds;
 pub mod format;
+pub mod panels;
 pub mod papers;
 pub mod reader;
 pub mod settings;

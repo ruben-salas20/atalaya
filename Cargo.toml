@@ -12,3 +12,10 @@ atalaya-api = { path = "crates/atalaya-api" }
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock", "serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+
+# gpui-base 0.8.0 con un arreglo de una línea en `src/text/node.rs` (busca
+# «Atalaya:»): con HTML, todos los párrafos con código o imagen compartían
+# el mismo id y se pintaban mal. Ver ADR 0011. Se quita cuando una versión
+# publicada lo arregle.
+[patch.crates-io]
+gpui-base = { path = "vendor/gpui-base" }
