@@ -80,9 +80,8 @@ impl Reader {
         self.action_error = None;
         self.fetch(id, Duration::ZERO, cx);
         // Abrir marca como leído; el botón de la barra sirve para deshacerlo.
-        // Sin red no se intenta: solo daría un error al leer la copia.
-        let online = super::client(cx).is_ok_and(|client| !client.is_offline());
-        if unread && online {
+        // Sin red se guarda el cambio y se manda al volver la red.
+        if unread {
             self.update(
                 EntryUpdate {
                     read: Some(true),
@@ -169,9 +168,10 @@ impl Reader {
         // Sin guardar la tarea: pulsar leído y guardar seguidos no debe
         // cancelar la primera petición.
         let id = before.id;
+        let current = before.clone();
         cx.spawn(async move |this, cx| {
             let result = cx
-                .background_spawn(async move { client.update_entry(id, &update) })
+                .background_spawn(async move { client.update_entry(&current, &update) })
                 .await;
             this.update(cx, |this, cx| {
                 let current = this.summary.as_ref().map(|s| s.id) == Some(id);
