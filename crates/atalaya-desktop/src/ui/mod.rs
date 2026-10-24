@@ -8,6 +8,7 @@
 //! | `entry_list.rs` | Columna 2: la lista de artículos | 5.1 |
 //! | `reader.rs` | Columna 3: el artículo abierto | 5.2 |
 //! | `feeds.rs` | Pantalla 5: gestión de feeds | 5.4 |
+//! | `papers/` | Pantalla 4: buscar, abrir y guardar papers | 5.3 |
 //! | `settings.rs` | Pantalla 3: ajustes | 5.4 |
 //! | `widgets.rs`, `format.rs` | Piezas comunes: iconos, botones, horas, idioma | todos |
 
@@ -15,6 +16,7 @@ pub mod app;
 pub mod entry_list;
 pub mod feeds;
 pub mod format;
+pub mod papers;
 pub mod reader;
 pub mod settings;
 pub mod sidebar;

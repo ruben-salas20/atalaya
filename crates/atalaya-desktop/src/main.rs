@@ -1,6 +1,7 @@
 //! App de PC de Atalaya: lector RSS que habla con el servicio de `ai-lab`.
 
 mod assets;
+mod cache;
 mod client;
 mod palette;
 mod settings;
