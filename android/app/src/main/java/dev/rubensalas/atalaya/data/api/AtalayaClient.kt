@@ -49,6 +49,7 @@ class AtalayaClient(
             query.categoryId?.let { addQueryParameter("category_id", it.toString()) }
             query.limit?.let { addQueryParameter("limit", it.toString()) }
             query.offset?.let { addQueryParameter("offset", it.toString()) }
+            query.q?.let { addQueryParameter("q", it) }
         }
 
     suspend fun entry(id: Id): Entry = get("api/entries/$id")

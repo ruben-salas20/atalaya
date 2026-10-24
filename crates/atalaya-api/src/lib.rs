@@ -17,7 +17,7 @@
 //! | `GET /health` | | [`Health`] | 2.1 |
 //! | `GET /api/status` | | [`Status`] | 2.1 |
 //! | `GET /api/sidebar` | | [`Sidebar`] | 2.2 |
-//! | `GET /api/entries` | [`EntryQuery`] en la URL | [`EntryPage`] | 2.2 |
+//! | `GET /api/entries` | [`EntryQuery`] en la URL (con `q` busca en los títulos) | [`EntryPage`] | 2.2, #36 |
 //! | `GET /api/entries/{id}` | | [`Entry`] | 2.2 y 2.4 |
 //! | `PATCH /api/entries/{id}` | [`EntryUpdate`] | [`EntrySummary`] | 2.2 |
 //! | `POST /api/entries/mark-all-as-read` | [`MarkAllReadQuery`] en la URL | 204 sin cuerpo | #19 |
@@ -92,16 +92,47 @@ pub enum View {
 /// `view` se combina con `feed_id` o `category_id`: «sin leer de este feed».
 /// Si llegan los dos, manda `feed_id`. El orden es siempre del más nuevo al
 /// más viejo.
+///
+/// `q` busca en el título original y en el traducido, sin distinguir
+/// mayúsculas ni tildes (ver [`fold`]). Con `q`, la vista se recorre entera:
+/// `total` cuenta los que encajan, no los de la vista.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct EntryQuery {
     #[serde(default)]
     pub view: View,
     pub feed_id: Option<Id>,
     pub category_id: Option<Id>,
+    /// Texto a buscar en el título. Vacío o ausente: no filtra.
+    pub q: Option<String>,
     /// Por defecto 50; como mucho 200.
     pub limit: Option<u32>,
     /// Por defecto 0.
     pub offset: Option<u32>,
+}
+
+/// Pliega un texto para comparar búsquedas: minúsculas y sin tildes, diéresis
+/// ni la marca de la «ñ» (que pasa a «n»). «Modelos» y «MODELÓS» dan lo mismo.
+///
+/// La app de Android tiene la misma tabla en
+/// `android/app/src/main/java/dev/rubensalas/atalaya/data/list/Search.kt`;
+/// si cambia aquí, cambia también allí.
+pub fn fold(text: &str) -> String {
+    text.chars()
+        .flat_map(char::to_lowercase)
+        // Marcas sueltas (acento escrito aparte, como en «o\u{301}»).
+        .filter(|c| !('\u{300}'..='\u{36f}').contains(c))
+        .map(|c| match c {
+            'á' | 'à' | 'ä' | 'â' | 'ã' => 'a',
+            'é' | 'è' | 'ë' | 'ê' => 'e',
+            'í' | 'ì' | 'ï' | 'î' => 'i',
+            'ó' | 'ò' | 'ö' | 'ô' | 'õ' => 'o',
+            'ú' | 'ù' | 'ü' | 'û' => 'u',
+            'ñ' => 'n',
+            'ç' => 'c',
+            'ý' | 'ÿ' => 'y',
+            other => other,
+        })
+        .collect()
 }
 
 /// Parámetros de `POST /api/entries/mark-all-as-read`, en la URL:
@@ -462,5 +493,20 @@ mod tests {
     fn query_defaults_to_all() {
         let q: EntryQuery = serde_json::from_str("{}").unwrap();
         assert_eq!(q.view, View::All);
+    }
+
+    #[test]
+    fn fold_ignores_case_and_accents() {
+        assert_eq!(fold("MODELÓS"), "modelos");
+        assert_eq!(fold("Año"), "ano");
+        assert_eq!(fold("o\u{301}"), "o");
+        assert_eq!(fold("Ç ÿ ü"), "c y u");
+        assert_eq!(fold("Conocimiento"), fold("conocimiénto"));
+    }
+
+    #[test]
+    fn query_accepts_search_text() {
+        let q: EntryQuery = serde_json::from_str(r#"{"q":"conocimiento"}"#).unwrap();
+        assert_eq!(q.q.as_deref(), Some("conocimiento"));
     }
 }

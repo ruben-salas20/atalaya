@@ -53,6 +53,8 @@ data class EntryQuery(
     val categoryId: Id? = null,
     val limit: Int? = null,
     val offset: Int? = null,
+    /** Texto a buscar en el título original o traducido. Vacío o nulo: sin búsqueda. */
+    val q: String? = null,
 )
 
 /**

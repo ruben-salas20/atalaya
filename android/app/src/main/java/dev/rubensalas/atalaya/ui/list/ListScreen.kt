@@ -11,9 +11,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,9 +45,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
@@ -97,8 +106,12 @@ fun ListScreen(
     var expanded by rememberSaveable { mutableStateOf(setOf<Long>()) }
     val listState = rememberLazyListState()
     val snackbar = remember { SnackbarHostState() }
+    val focusRequester = remember { FocusRequester() }
 
     BackHandler(enabled = drawerState.isOpen) { scope.launch { drawerState.close() } }
+    BackHandler(enabled = state.searching) { vm.closeSearch() }
+
+    LaunchedEffect(state.searching) { if (state.searching) focusRequester.requestFocus() }
 
     LaunchedEffect(state.selection) { listState.scrollToItem(0) }
 
@@ -157,30 +170,45 @@ fun ListScreen(
                 Column {
                     TopAppBar(
                         title = {
-                            Text(
-                                buildAnnotatedString {
-                                    append(state.selection.title())
-                                    state.count?.let { count ->
-                                        withStyle(SpanStyle(fontSize = 14.sp, fontWeight = FontWeight.Normal, color = c.text3)) {
-                                            append("  $count")
+                            if (state.searching) {
+                                SearchField(state.search, focusRequester, onChange = vm::setSearch)
+                            } else {
+                                Text(
+                                    buildAnnotatedString {
+                                        append(state.selection.title())
+                                        state.count?.let { count ->
+                                            withStyle(SpanStyle(fontSize = 14.sp, fontWeight = FontWeight.Normal, color = c.text3)) {
+                                                append("  $count")
+                                            }
                                         }
-                                    }
-                                },
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                                    },
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         },
                         navigationIcon = {
-                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                Icon(Icons.Filled.Menu, contentDescription = "Abrir el menú")
+                            if (state.searching) {
+                                IconButton(onClick = vm::closeSearch) {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Cerrar la búsqueda")
+                                }
+                            } else {
+                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                    Icon(Icons.Filled.Menu, contentDescription = "Abrir el menú")
+                                }
                             }
                         },
                         actions = {
-                            if (state.selection != ListSelection.Fixed(View.Starred)) {
-                                IconButton(onClick = { vm.markAllRead() }) {
-                                    Icon(Icons.Filled.DoneAll, contentDescription = "Marcar todo como leído")
+                            if (!state.searching) {
+                                IconButton(onClick = vm::openSearch) {
+                                    Icon(Icons.Filled.Search, contentDescription = "Buscar")
+                                }
+                                if (state.selection != ListSelection.Fixed(View.Starred)) {
+                                    IconButton(onClick = { vm.markAllRead() }) {
+                                        Icon(Icons.Filled.DoneAll, contentDescription = "Marcar todo como leído")
+                                    }
                                 }
                             }
                         },
@@ -203,7 +231,7 @@ fun ListScreen(
                         OutlinedButton(onClick = onOpenSettings) { Text("Ajustes") }
                     }
                     state.entries.isEmpty() && state.sidebar != null -> Centered {
-                        Text(emptyText(state.selection), color = c.text3, textAlign = TextAlign.Center)
+                        Text(emptyText(state.selection, state.search), color = c.text3, textAlign = TextAlign.Center)
                     }
                     else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                         items(state.entries, key = { it.id }) { entry ->
@@ -230,10 +258,30 @@ fun ListScreen(
     }
 }
 
-private fun emptyText(selection: ListSelection): String = when (selection) {
-    ListSelection.Fixed(View.Unread) -> "No hay nada sin leer"
-    ListSelection.Fixed(View.Starred) -> "No hay artículos guardados"
+private fun emptyText(selection: ListSelection, search: String): String = when {
+    search.isNotBlank() -> "Ningún artículo coincide con «${search.trim()}»"
+    selection == ListSelection.Fixed(View.Unread) -> "No hay nada sin leer"
+    selection == ListSelection.Fixed(View.Starred) -> "No hay artículos guardados"
     else -> "No hay artículos"
+}
+
+/** Campo de búsqueda que ocupa el lugar del título mientras se busca. */
+@Composable
+private fun SearchField(text: String, focusRequester: FocusRequester, onChange: (String) -> Unit) {
+    val c = Atalaya.colors
+    BasicTextField(
+        value = text,
+        onValueChange = onChange,
+        modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+        singleLine = true,
+        textStyle = TextStyle(fontSize = 18.sp, color = c.text),
+        cursorBrush = SolidColor(c.accent),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        decorationBox = { inner ->
+            if (text.isEmpty()) Text("Buscar por título", color = c.text3, fontSize = 18.sp)
+            inner()
+        },
+    )
 }
 
 @Composable

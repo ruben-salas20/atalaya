@@ -8,14 +8,33 @@ use std::sync::atomic::Ordering;
 
 use atalaya_api::{
     Entry, EntryPage, EntryQuery, EntrySummary, EntryUpdate, Id, MarkAllReadQuery, Sidebar,
-    TranslationState, View,
+    TranslationState, View, fold,
 };
 use reqwest::Method;
 
-use super::{ApiClient, Result, check};
+use super::{ApiClient, Result, check, read_json};
 
 fn entry_key(id: Id) -> String {
     format!("entries/{id}")
+}
+
+/// Nombre en disco de una página de lista. Las búsquedas no se guardan.
+fn list_key(query: &EntryQuery) -> String {
+    format!(
+        "list-{:?}-{}-{}-{}-{}",
+        query.view,
+        query.feed_id.unwrap_or(0),
+        query.category_id.unwrap_or(0),
+        query.offset.unwrap_or(0),
+        query.limit.unwrap_or(0),
+    )
+    .to_lowercase()
+}
+
+/// El texto de búsqueda, sin espacios y plegado, o `None` si no hay.
+fn search_text(query: &EntryQuery) -> Option<String> {
+    let needle = fold(query.q.as_deref()?.trim());
+    (!needle.is_empty()).then_some(needle)
 }
 
 impl ApiClient {
@@ -24,18 +43,57 @@ impl ApiClient {
         self.get_cached("sidebar", "/api/sidebar", &(), |_| true)
     }
 
-    /// `GET /api/entries`.
+    /// `GET /api/entries`. Con `q`, busca en el servicio; sin red, filtra
+    /// las listas guardadas de esta misma vista.
     pub fn entries(&self, query: &EntryQuery) -> Result<EntryPage> {
-        let key = format!(
-            "list-{:?}-{}-{}-{}-{}",
-            query.view,
-            query.feed_id.unwrap_or(0),
-            query.category_id.unwrap_or(0),
-            query.offset.unwrap_or(0),
-            query.limit.unwrap_or(0),
-        )
-        .to_lowercase();
-        self.get_cached(&key, "/api/entries", query, |_| true)
+        let Some(needle) = search_text(query) else {
+            return self.get_cached(&list_key(query), "/api/entries", query, |_| true);
+        };
+        match read_json(
+            self.request(Method::GET, "/api/entries")
+                .query(query)
+                .send(),
+        ) {
+            Ok(page) => {
+                self.offline.store(false, Ordering::Relaxed);
+                Ok(page)
+            }
+            Err(failure) if failure.network => {
+                self.cached_search(query, &needle).ok_or(failure.message)
+            }
+            Err(failure) => Err(failure.message),
+        }
+    }
+
+    /// Busca `needle` en las páginas guardadas de la vista de `query`, como
+    /// hace el servicio. `None` si no hay ninguna página guardada.
+    fn cached_search(&self, query: &EntryQuery, needle: &str) -> Option<EntryPage> {
+        let cache = self.cache.as_ref()?;
+        let mut found: Vec<EntrySummary> = Vec::new();
+        let mut offset = 0;
+        let mut any = false;
+        while let Some(page) = cache.load::<EntryPage>(&list_key(&EntryQuery {
+            offset: Some(offset),
+            ..query.clone()
+        })) {
+            any = true;
+            if page.entries.is_empty() {
+                break;
+            }
+            offset += page.entries.len() as u32;
+            found.extend(page.entries.into_iter().filter(|e| {
+                fold(&e.title).contains(needle) || fold(&e.original_title).contains(needle)
+            }));
+        }
+        if !any {
+            return None;
+        }
+        let total = found.len() as u64;
+        let start = (query.offset.unwrap_or(0) as usize).min(found.len());
+        let limit = query.limit.unwrap_or(50).clamp(1, 200) as usize;
+        let entries = found.into_iter().skip(start).take(limit).collect();
+        self.offline.store(true, Ordering::Relaxed);
+        Some(EntryPage { total, entries })
     }
 
     /// `GET /api/entries/{id}`. Pone en marcha la traducción si hace falta.

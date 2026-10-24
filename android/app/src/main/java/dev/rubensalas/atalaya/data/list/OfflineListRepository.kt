@@ -58,6 +58,8 @@ class OfflineListRepository(
 
     override suspend fun entries(query: EntryQuery): EntryPage {
         val page = client.entries(query)
+        // Un resultado de búsqueda no se guarda: no es una lista que haya que tener sin red.
+        if (searchNeedle(query.q) != null) return page
         val merged = lock.withLock { mergeAndStore(page.entries, keepAll = false) }
         return EntryPage(page.total, merged)
     }
@@ -70,6 +72,8 @@ class OfflineListRepository(
         val rows = dao.entries()
         if (sidebar == null && rows.isEmpty()) return null
         val feeds = feedsIn(sidebar, query.feedId, query.categoryId)
+        // Como el servicio: busca en lo guardado de la vista, sin importar tildes ni mayúsculas.
+        val needle = searchNeedle(query.q)
         val matching = rows
             .filter { feeds == null || it.feedId in feeds }
             .filter {
@@ -79,6 +83,7 @@ class OfflineListRepository(
                     View.Starred -> it.starred
                 }
             }
+            .filter { needle == null || titleMatches(needle, it.title, it.originalTitle) }
             .sortedWith(compareByDescending<LocalEntry> { it.publishedAt }.thenByDescending { it.id })
         val offset = query.offset ?: 0
         val limit = query.limit ?: DEFAULT_LIMIT
