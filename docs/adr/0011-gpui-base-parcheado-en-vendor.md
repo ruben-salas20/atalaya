@@ -24,4 +24,4 @@ Una copia de `gpui-base` 0.8.0 vive en `vendor/gpui-base`, y el `Cargo.toml` del
 - Los artículos HTML se ven bien: código con letra de ancho fijo, listas con código e imágenes junto al texto.
 - El repo pesa unos 5 MB más.
 - Al subir de versión `gpui-component` (ADR 0006), hay que mirar si el arreglo ya está publicado. Si está, se borran `vendor/gpui-base` y el `[patch.crates-io]`. Si no, hay que copiar la versión nueva y repetir el cambio.
-- Conviene avisar al autor con una issue en `longbridge/gpui-component`, para que el arreglo llegue a una versión publicada.
+- Se avisó al autor en https://github.com/longbridge/gpui-kit/issues/3668, para que el arreglo llegue a una versión publicada.
