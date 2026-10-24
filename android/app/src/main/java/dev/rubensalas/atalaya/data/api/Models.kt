@@ -189,6 +189,8 @@ data class Feed(
     @SerialName("articles_per_day") val articlesPerDay: Double? = null,
     @SerialName("checked_at") @Serializable(InstantSerializer::class) val checkedAt: Instant? = null,
     val error: FeedError? = null,
+    /** Si es el feed de los papers guardados. Lo dice el servicio; no se mira la URL. */
+    val papers: Boolean = false,
 )
 
 /** Fallo al actualizar un feed (F6). `message` es el de Miniflux, tal cual. */

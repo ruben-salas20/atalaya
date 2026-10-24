@@ -34,8 +34,14 @@ pub fn detect(title: &str, content_html: &str) -> Option<String> {
     sample.push('\n');
     sample.push_str(&html_to_text(content_html));
     let sample: String = sample.chars().take(SAMPLE_CHARS).collect();
+    detect_text(&sample)
+}
 
-    let info = Detector::with_allowlist(CANDIDATES.to_vec()).detect(&sample)?;
+/// Idioma de un texto ya sin HTML, en ISO 639-1, o `None` si no hay seguridad.
+/// Lo usan tanto `detect` como las estadísticas de un feed: así las dos partes
+/// detectan igual. Quien llama decide cuánto texto pasa.
+pub fn detect_text(text: &str) -> Option<String> {
+    let info = Detector::with_allowlist(CANDIDATES.to_vec()).detect(text)?;
     if !info.is_reliable() && info.confidence() < MIN_CONFIDENCE {
         return None;
     }

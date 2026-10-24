@@ -10,6 +10,7 @@ pub mod llama;
 pub mod miniflux;
 pub mod papers;
 pub mod sidebar;
+pub mod stats_cache;
 pub mod store;
 pub mod titles;
 pub mod translations;
@@ -19,8 +20,8 @@ use atalaya_api::{Health, Status};
 use axum::{Json, Router, extract::State, middleware, routing::get};
 
 use crate::{
-    config::Config, llama::Llama, miniflux::Miniflux, papers::Papers, store::Store,
-    translations::Translations,
+    config::Config, llama::Llama, miniflux::Miniflux, papers::Papers, stats_cache::StatsCache,
+    store::Store, translations::Translations,
 };
 
 /// Lo que comparten todos los handlers.
@@ -31,6 +32,7 @@ pub struct AppState {
     pub miniflux: Miniflux,
     pub translations: Translations,
     pub papers: Papers,
+    pub stats: StatsCache,
 }
 
 impl AppState {
@@ -50,6 +52,7 @@ impl AppState {
             miniflux,
             translations,
             papers,
+            stats: StatsCache::default(),
         }
     }
 }

@@ -230,7 +230,10 @@ impl Miniflux {
         papers: Option<PapersPlace>,
     ) -> AppResult<MinifluxEntryPage> {
         let (path, params) = entries_request(query, papers);
-        Self::send(self.request(Method::GET, &path).query(&params)).await
+        let mut page: MinifluxEntryPage =
+            Self::send(self.request(Method::GET, &path).query(&params)).await?;
+        sort_newest_first(&mut page.entries);
+        Ok(page)
     }
 
     pub(crate) async fn entry(&self, id: Id) -> AppResult<MinifluxEntry> {
@@ -269,6 +272,13 @@ fn invalid(what: &str, detail: String) -> AppError {
     AppError::bad_request(format!("{what}: {detail}"))
 }
 
+/// Del más nuevo al más viejo. Con la misma fecha, el id más alto primero.
+/// Miniflux solo acepta un orden, así que el desempate se hace aquí, dentro
+/// de la página. Entre páginas, los empates pueden repetirse o saltarse.
+pub(crate) fn sort_newest_first(entries: &mut [MinifluxEntry]) {
+    entries.sort_by(|a, b| b.published_at.cmp(&a.published_at).then(b.id.cmp(&a.id)));
+}
+
 fn not_found_in_spanish(e: AppError, id: Id) -> AppError {
     if e.status == axum::http::StatusCode::NOT_FOUND {
         AppError::not_found(format!("no existe el artículo {id}"))
@@ -305,6 +315,23 @@ mod tests {
 
     fn entry() -> MinifluxEntry {
         serde_json::from_str(MINIFLUX_ENTRY).unwrap()
+    }
+
+    #[test]
+    fn ties_in_date_go_by_newest_id() {
+        let at = |id: Id, date: &str| MinifluxEntry {
+            id,
+            published_at: date.parse().unwrap(),
+            ..entry()
+        };
+        let mut entries = vec![
+            at(5, "2023-07-01T10:00:00Z"),
+            at(9, "2023-07-01T10:00:00Z"),
+            at(7, "2023-07-02T10:00:00Z"),
+        ];
+        sort_newest_first(&mut entries);
+        let ids: Vec<Id> = entries.iter().map(|e| e.id).collect();
+        assert_eq!(ids, [7, 9, 5]);
     }
 
     #[test]

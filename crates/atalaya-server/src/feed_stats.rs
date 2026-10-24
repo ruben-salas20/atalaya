@@ -7,6 +7,8 @@
 
 use chrono::{DateTime, TimeDelta, Utc};
 
+use crate::lang;
+
 /// Cuántos artículos recientes se usan para calcular.
 pub const SAMPLE: usize = 50;
 
@@ -92,24 +94,7 @@ pub fn detect_lang<'a>(entries: impl IntoIterator<Item = &'a EntrySample>) -> Op
         text.extend(body.chars().take(CHARS_PER_ENTRY));
         text.push('\n');
     }
-    let info = whatlang::detect(&text)?;
-    if !info.is_reliable() {
-        return None;
-    }
-    iso_639_1(info.lang())
-}
-
-/// Pasa el código de 3 letras de `whatlang` al de 2 letras de la API.
-pub fn iso_639_1(lang: whatlang::Lang) -> Option<String> {
-    // `whatlang` da la variante concreta; ISO 639-1 solo tiene la general.
-    let code = match lang.code() {
-        "cmn" => return Some("zh".into()),
-        "pes" => return Some("fa".into()),
-        other => other,
-    };
-    isolang::Language::from_639_3(code)
-        .and_then(|l| l.to_639_1())
-        .map(str::to_owned)
+    lang::detect_text(&text)
 }
 
 /// `"en-US"` → `"en"`. Lo que no parece un código de idioma, `None`.
@@ -258,13 +243,6 @@ mod tests {
         assert_eq!(normalize_lang("ES_es").as_deref(), Some("es"));
         assert_eq!(normalize_lang(""), None);
         assert_eq!(normalize_lang("english"), None);
-    }
-
-    #[test]
-    fn every_whatlang_language_has_a_code() {
-        for lang in whatlang::Lang::all() {
-            assert!(iso_639_1(*lang).is_some(), "{lang:?} sin código ISO 639-1");
-        }
     }
 
     #[test]

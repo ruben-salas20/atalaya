@@ -271,6 +271,9 @@ pub struct Feed {
     pub checked_at: Option<DateTime<Utc>>,
     /// Si falló la última actualización.
     pub error: Option<FeedError>,
+    /// Si es el feed donde caen los papers guardados (Guardados).
+    #[serde(default)]
+    pub papers: bool,
 }
 
 /// Fallo al actualizar un feed (F6).

@@ -1,7 +1,7 @@
 //! Traducción de búsquedas y títulos de papers (P1, P3).
 //!
 //! Aquí Rubén está esperando la respuesta, así que no se usa la cola de
-//! `titles`, que puede estar ocupada con la revisión al arrancar. Se habla
+//! `titles`, que puede estar ocupada con la revisión periódica. Se habla
 //! con llama-swap directamente, con el mismo modelo. llama-server atiende
 //! varias peticiones a la vez del mismo modelo, así que no hay cambio de
 //! modelo ni choque en la GPU.

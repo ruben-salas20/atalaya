@@ -9,6 +9,28 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::error::AppError;
 
+/// Mensajes de error de Miniflux que llegan a Rubén, con su traducción. Miniflux
+/// los escribe en inglés. Lo que no esté aquí sale con un aviso genérico.
+const KNOWN_ERRORS: [(&str, &str); 3] = [
+    ("This feed already exists", "Este feed ya existe."),
+    (
+        "Resource not found",
+        "No se encontró el recurso en Miniflux.",
+    ),
+    ("Access Unauthorized", "Miniflux no autorizó la petición."),
+];
+
+/// Mensaje en español para un error de Miniflux. Si no se conoce, lo deja
+/// tal cual, con un aviso delante.
+pub fn spanish_error(original: &str) -> String {
+    let text = original.trim();
+    let bare = text.trim_end_matches('.');
+    KNOWN_ERRORS.iter().find(|(en, _)| *en == bare).map_or_else(
+        || format!("Miniflux rechazó la petición: {text}"),
+        |(_, es)| (*es).to_owned(),
+    )
+}
+
 #[derive(Debug, Clone)]
 pub struct Miniflux {
     http: reqwest::Client,
@@ -69,11 +91,36 @@ impl Miniflux {
             error_message: String,
         }
         let message = match resp.json::<MinifluxError>().await {
-            Ok(e) => format!("Miniflux: {}", e.error_message),
+            Ok(e) => spanish_error(&e.error_message),
             Err(_) => format!("Miniflux respondió {status}"),
         };
         let status = axum::http::StatusCode::from_u16(status.as_u16())
             .unwrap_or(axum::http::StatusCode::BAD_GATEWAY);
         Err(AppError::new(status, message))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn translates_known_miniflux_errors() {
+        assert_eq!(
+            spanish_error("This feed already exists."),
+            "Este feed ya existe."
+        );
+        assert_eq!(
+            spanish_error("This feed already exists"),
+            "Este feed ya existe."
+        );
+    }
+
+    #[test]
+    fn unknown_miniflux_errors_keep_the_original() {
+        assert_eq!(
+            spanish_error("Something new went wrong"),
+            "Miniflux rechazó la petición: Something new went wrong"
+        );
     }
 }
