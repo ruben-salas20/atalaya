@@ -55,6 +55,15 @@ data class EntryQuery(
     val offset: Int? = null,
 )
 
+/**
+ * Parámetros de `POST /api/entries/mark-all-as-read`. Sin ninguno marca
+ * todo lo de «Todos». Si llegan los dos, manda `feedId`.
+ */
+data class MarkAllReadQuery(
+    val feedId: Id? = null,
+    val categoryId: Id? = null,
+)
+
 @Serializable
 data class EntryPage(val total: Long, val entries: List<EntrySummary>)
 

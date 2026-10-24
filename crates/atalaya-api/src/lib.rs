@@ -20,6 +20,7 @@
 //! | `GET /api/entries` | [`EntryQuery`] en la URL | [`EntryPage`] | 2.2 |
 //! | `GET /api/entries/{id}` | | [`Entry`] | 2.2 y 2.4 |
 //! | `PATCH /api/entries/{id}` | [`EntryUpdate`] | [`EntrySummary`] | 2.2 |
+//! | `POST /api/entries/mark-all-as-read` | [`MarkAllReadQuery`] en la URL | 204 sin cuerpo | #19 |
 //! | `POST /api/feeds/discover` | [`DiscoverRequest`] | `Vec<`[`DiscoveredFeed`]`>` | 2.5 |
 //! | `GET /api/feeds` | | `Vec<`[`Feed`]`>` | 2.5 |
 //! | `POST /api/feeds` | [`NewFeed`] | 201 y [`Feed`] | 2.5 |
@@ -101,6 +102,17 @@ pub struct EntryQuery {
     pub limit: Option<u32>,
     /// Por defecto 0.
     pub offset: Option<u32>,
+}
+
+/// Parámetros de `POST /api/entries/mark-all-as-read`, en la URL:
+/// `?category_id=3`. Sin ninguno, marca como leído todo lo visible en «Todos».
+///
+/// Igual que en [`EntryQuery`], `feed_id` gana a `category_id` si llegan los dos.
+/// Los papers guardados no se tocan: solo se marcan los artículos de «Todos».
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct MarkAllReadQuery {
+    pub feed_id: Option<Id>,
+    pub category_id: Option<Id>,
 }
 
 /// Una página de la lista.

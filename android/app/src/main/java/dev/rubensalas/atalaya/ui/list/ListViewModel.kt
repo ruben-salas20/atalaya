@@ -7,6 +7,7 @@ import dev.rubensalas.atalaya.data.api.EntryQuery
 import dev.rubensalas.atalaya.data.api.EntrySummary
 import dev.rubensalas.atalaya.data.api.EntryUpdate
 import dev.rubensalas.atalaya.data.api.Id
+import dev.rubensalas.atalaya.data.api.MarkAllReadQuery
 import dev.rubensalas.atalaya.data.api.Sidebar
 import dev.rubensalas.atalaya.data.api.View
 import dev.rubensalas.atalaya.data.list.ListRepository
@@ -213,6 +214,25 @@ class ListViewModel(private val repo: ListRepository) : ViewModel() {
                 throw e
             } catch (e: ApiException) {
                 _state.update { it.withFlags(entry.id, before.read, before.starred).copy(error = "No se pudo cambiar: ${errorMessage(e)}") }
+            }
+        }
+    }
+
+    /** Marca como leído lo de la lista abierta. «Destacados» no tiene este botón. */
+    fun markAllRead() {
+        val scope = when (val selection = _state.value.selection) {
+            is ListSelection.Fixed -> if (selection.view == View.Starred) return else MarkAllReadQuery()
+            is ListSelection.Category -> MarkAllReadQuery(categoryId = selection.id)
+            is ListSelection.Feed -> MarkAllReadQuery(feedId = selection.id)
+        }
+        viewModelScope.launch {
+            try {
+                repo.markAllRead(scope)
+                refresh()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ApiException) {
+                _state.update { it.copy(error = "No se pudo marcar: ${errorMessage(e)}") }
             }
         }
     }

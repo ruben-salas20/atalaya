@@ -8,6 +8,7 @@ import dev.rubensalas.atalaya.data.api.EntryQuery
 import dev.rubensalas.atalaya.data.api.EntrySummary
 import dev.rubensalas.atalaya.data.api.EntryUpdate
 import dev.rubensalas.atalaya.data.api.Id
+import dev.rubensalas.atalaya.data.api.MarkAllReadQuery
 import dev.rubensalas.atalaya.data.api.Sidebar
 import dev.rubensalas.atalaya.data.api.TranslationState
 import dev.rubensalas.atalaya.data.api.View
@@ -68,12 +69,7 @@ class OfflineListRepository(
         val sidebar = cachedSidebar()
         val rows = dao.entries()
         if (sidebar == null && rows.isEmpty()) return null
-        val feeds: Set<Id>? = when {
-            query.feedId != null -> setOf(query.feedId)
-            query.categoryId != null ->
-                sidebar?.categories?.firstOrNull { it.id == query.categoryId }?.feeds?.mapTo(HashSet()) { it.id }.orEmpty()
-            else -> null
-        }
+        val feeds = feedsIn(sidebar, query.feedId, query.categoryId)
         val matching = rows
             .filter { feeds == null || it.feedId in feeds }
             .filter {
@@ -138,6 +134,26 @@ class OfflineListRepository(
                 dao.entry(id)?.let { setFlags(it, before.read, before.starred, before.readDirty, before.starredDirty) }
             }
             throw e
+        }
+    }
+
+    override suspend fun markAllRead(scope: MarkAllReadQuery) {
+        client.markAllRead(scope)
+        lock.withLock {
+            val feeds = feedsIn(cachedSidebar(), scope.feedId, scope.categoryId)
+            val seenAt = now().toEpochMilli()
+            // «Todos» local incluye lo guardado de papers, que el servicio no marca (ver la issue #19).
+            val changed = dao.entries()
+                .filter { !it.read && (feeds == null || it.feedId in feeds) }
+                .map { it.copy(read = true, readSeenAt = it.readSeenAt ?: seenAt) }
+            if (changed.isEmpty()) return@withLock
+            dao.upsertEntries(changed)
+            cachedSidebar()?.let { sidebar ->
+                val adjusted = changed.groupingBy { it.feedId }.eachCount().entries.fold(sidebar) { s, (feed, n) ->
+                    s.adjusted(feed, -n, 0)
+                }
+                saveSidebar(adjusted)
+            }
         }
     }
 
@@ -268,6 +284,14 @@ class OfflineListRepository(
             row == null || (!info.opened && !row.starred)
         }.map { it.id }
         if (orphanContents.isNotEmpty()) dao.deleteContents(orphanContents)
+    }
+
+    /** Los feeds que cubre un alcance, o null si cubre todo («Todos»). */
+    private fun feedsIn(sidebar: Sidebar?, feedId: Id?, categoryId: Id?): Set<Id>? = when {
+        feedId != null -> setOf(feedId)
+        categoryId != null ->
+            sidebar?.categories?.firstOrNull { it.id == categoryId }?.feeds?.mapTo(HashSet()) { it.id }.orEmpty()
+        else -> null
     }
 
     private suspend fun saveSidebar(sidebar: Sidebar) =

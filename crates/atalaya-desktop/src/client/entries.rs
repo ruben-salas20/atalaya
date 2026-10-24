@@ -7,11 +7,12 @@
 use std::sync::atomic::Ordering;
 
 use atalaya_api::{
-    Entry, EntryPage, EntryQuery, EntrySummary, EntryUpdate, Id, Sidebar, TranslationState, View,
+    Entry, EntryPage, EntryQuery, EntrySummary, EntryUpdate, Id, MarkAllReadQuery, Sidebar,
+    TranslationState, View,
 };
 use reqwest::Method;
 
-use super::{ApiClient, Result};
+use super::{ApiClient, Result, check};
 
 fn entry_key(id: Id) -> String {
     format!("entries/{id}")
@@ -81,5 +82,16 @@ impl ApiClient {
     /// `PATCH /api/entries/{id}`: leído o guardado.
     pub fn update_entry(&self, id: Id, update: &EntryUpdate) -> Result<EntrySummary> {
         self.send_json(Method::PATCH, &format!("/api/entries/{id}"), update)
+    }
+
+    /// `POST /api/entries/mark-all-as-read` con el alcance en la URL: un feed,
+    /// una carpeta o, sin nada, todos. Responde 204 sin cuerpo.
+    pub fn mark_all_read(&self, scope: &MarkAllReadQuery) -> Result<()> {
+        check(
+            self.request(Method::POST, "/api/entries/mark-all-as-read")
+                .query(scope)
+                .send(),
+        )?;
+        Ok(())
     }
 }

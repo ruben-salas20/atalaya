@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
@@ -174,6 +175,13 @@ fun ListScreen(
                         navigationIcon = {
                             IconButton(onClick = { scope.launch { drawerState.open() } }) {
                                 Icon(Icons.Filled.Menu, contentDescription = "Abrir el menú")
+                            }
+                        },
+                        actions = {
+                            if (state.selection != ListSelection.Fixed(View.Starred)) {
+                                IconButton(onClick = { vm.markAllRead() }) {
+                                    Icon(Icons.Filled.DoneAll, contentDescription = "Marcar todo como leído")
+                                }
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = c.bg),

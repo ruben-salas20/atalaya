@@ -64,6 +64,38 @@ impl EntryList {
         self.fetch(0, cx);
     }
 
+    /// «Marcar todo como leído» de la lista abierta. Al acabar, recarga la
+    /// lista y avisa para que el menú recargue sus números.
+    fn mark_all_read(&mut self, cx: &mut Context<Self>) {
+        let Some(scope) = self.source.mark_all_scope() else {
+            return;
+        };
+        let client = match super::client(cx) {
+            Ok(client) => client,
+            Err(error) => {
+                self.load = Load::Failed(error);
+                cx.notify();
+                return;
+            }
+        };
+        self._load = cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { client.mark_all_read(&scope) })
+                .await;
+            this.update(cx, |this, cx| match result {
+                Ok(()) => {
+                    this.refresh(cx);
+                    cx.emit(EntryListEvent::Refreshed);
+                }
+                Err(error) => {
+                    this.load = Load::Failed(format!("No se pudo marcar: {error}"));
+                    cx.notify();
+                }
+            })
+            .ok();
+        });
+    }
+
     /// Pide la página que empieza en `offset` y la añade a la lista.
     fn fetch(&mut self, offset: u32, cx: &mut Context<Self>) {
         let client = match super::client(cx) {
@@ -274,6 +306,12 @@ impl Render for EntryList {
                                 )
                             }),
                     )
+                    .when(self.source.mark_all_scope().is_some(), |d| {
+                        d.child(
+                            icon_button("done-all", Icon::DoneAll, &p)
+                                .on_click(cx.listener(|this, _, _, cx| this.mark_all_read(cx))),
+                        )
+                    })
                     .child(
                         icon_button("refresh", Icon::Refresh, &p).on_click(cx.listener(
                             |this, _, _, cx| {

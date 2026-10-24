@@ -5,14 +5,17 @@
 //!
 //! [`Translations`]: crate::translations::Translations
 
-use atalaya_api::{Entry, EntryPage, EntryQuery, EntrySummary, EntryUpdate, Id, View};
+use atalaya_api::{
+    Entry, EntryPage, EntryQuery, EntrySummary, EntryUpdate, Id, MarkAllReadQuery, View,
+};
 use axum::{
     Json, Router,
     extract::{
         Path, Query, State,
         rejection::{JsonRejection, PathRejection, QueryRejection},
     },
-    routing::get,
+    http::StatusCode,
+    routing::{get, post},
 };
 use chrono::{DateTime, Utc};
 use reqwest::Method;
@@ -33,6 +36,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/entries", get(list))
         .route("/entries/{id}", get(open).patch(update))
+        .route("/entries/mark-all-as-read", post(mark_all_read))
 }
 
 async fn list(
@@ -116,6 +120,28 @@ async fn update(
 
     let title = title_of(&state, id).await;
     Ok(Json(summary(&entry, title.as_ref())))
+}
+
+/// Marca como leído lo de un feed, lo de una carpeta o, sin filtro, «Todos».
+async fn mark_all_read(
+    State(state): State<AppState>,
+    query: Result<Query<MarkAllReadQuery>, QueryRejection>,
+) -> AppResult<StatusCode> {
+    let Query(query) = query.map_err(|e| invalid("parámetros no válidos", e.body_text()))?;
+    match (query.feed_id, query.category_id) {
+        (Some(feed), _) => state.miniflux.mark_feed_read(feed).await?,
+        (None, Some(category)) => state.miniflux.mark_category_read(category).await?,
+        (None, None) => {
+            // Sin saber qué feed es el de papers, no se marca nada: podría ser ese.
+            let papers = state.papers.saved_feed(false).await?;
+            for feed in state.miniflux.feed_ids().await? {
+                if Some(feed) != papers {
+                    state.miniflux.mark_feed_read(feed).await?;
+                }
+            }
+        }
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn title_of(state: &AppState, id: Id) -> Option<TitleInfo> {
@@ -249,6 +275,28 @@ impl Miniflux {
         });
         Self::send_empty(self.request(Method::PUT, "/v1/entries").json(&body)).await?;
         Ok(())
+    }
+
+    pub(crate) async fn mark_feed_read(&self, feed: Id) -> AppResult<()> {
+        let path = format!("/v1/feeds/{feed}/mark-all-as-read");
+        Self::send_empty(self.request(Method::PUT, &path)).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn mark_category_read(&self, category: Id) -> AppResult<()> {
+        let path = format!("/v1/categories/{category}/mark-all-as-read");
+        Self::send_empty(self.request(Method::PUT, &path)).await?;
+        Ok(())
+    }
+
+    /// Los ids de todos los feeds, también el oculto de papers.
+    pub(crate) async fn feed_ids(&self) -> AppResult<Vec<Id>> {
+        #[derive(Deserialize)]
+        struct FeedId {
+            id: Id,
+        }
+        let feeds: Vec<FeedId> = self.get("/v1/feeds").await?;
+        Ok(feeds.into_iter().map(|f| f.id).collect())
     }
 
     pub(crate) async fn toggle_starred(&self, id: Id) -> AppResult<()> {
@@ -493,6 +541,7 @@ mod tests {
             ("GET", "/api/entries"),
             ("GET", "/api/entries/1"),
             ("PATCH", "/api/entries/1"),
+            ("POST", "/api/entries/mark-all-as-read"),
         ] {
             let req = Request::builder()
                 .method(method)

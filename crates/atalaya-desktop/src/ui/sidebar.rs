@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use atalaya_api::{EntryQuery, Id, Sidebar as SidebarData, View};
+use atalaya_api::{EntryQuery, Id, MarkAllReadQuery, Sidebar as SidebarData, View};
 use gpui::prelude::*;
 use gpui::{Context, ElementId, EventEmitter, FontWeight, SharedString, Task, Window, div, px};
 
@@ -46,6 +46,23 @@ impl Source {
                 feed_id: Some(*id),
                 ..Default::default()
             },
+        }
+    }
+
+    /// Qué marca «marcar todo como leído» en esta lista. «Guardados» no tiene
+    /// ese botón, así que devuelve `None`.
+    pub fn mark_all_scope(&self) -> Option<MarkAllReadQuery> {
+        match self {
+            Source::View(View::Starred) => None,
+            Source::View(_) => Some(MarkAllReadQuery::default()),
+            Source::Category { id, .. } => Some(MarkAllReadQuery {
+                category_id: Some(*id),
+                ..Default::default()
+            }),
+            Source::Feed { id, .. } => Some(MarkAllReadQuery {
+                feed_id: Some(*id),
+                ..Default::default()
+            }),
         }
     }
 }
