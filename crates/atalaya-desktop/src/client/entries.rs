@@ -191,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn sin_red_el_cambio_se_guarda_y_se_responde_cambiado() {
+    fn offline_change_is_queued_and_applied() {
         let dir = TempDir::new();
         let client = offline_client(&dir);
         let update = EntryUpdate {
@@ -209,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn el_envio_sin_red_deja_el_cambio_en_la_cola() {
+    fn offline_send_keeps_the_queue() {
         let dir = TempDir::new();
         let client = offline_client(&dir);
         let update = EntryUpdate {
@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn al_volver_la_red_el_cambio_sale_de_la_cola() {
+    fn online_send_empties_the_queue() {
         let dir = TempDir::new();
         let listener = TcpListener::bind("127.0.0.1:0").expect("no se pudo abrir el servidor");
         let port = listener.local_addr().expect("puerto del servidor").port();

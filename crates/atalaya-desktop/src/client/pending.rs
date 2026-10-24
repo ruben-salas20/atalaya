@@ -117,7 +117,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn dos_cambios_al_mismo_articulo_se_funden() {
+    fn merges_two_changes_to_one_entry() {
         let dir = TempDir::new();
         let pending = Pending::new(dir.cache());
 
@@ -136,7 +136,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn el_cambio_queda_en_disco_y_se_lee_al_reabrir() {
+    fn change_survives_on_disk() {
         let dir = TempDir::new();
         Pending::new(dir.cache()).merge(3, &read(true));
         Pending::new(dir.cache()).merge(5, &starred(true));
@@ -147,7 +147,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn olvidar_quita_solo_lo_enviado() {
+    fn forget_removes_only_what_was_sent() {
         let dir = TempDir::new();
         let pending = Pending::new(dir.cache());
         pending.merge(9, &read(true));
