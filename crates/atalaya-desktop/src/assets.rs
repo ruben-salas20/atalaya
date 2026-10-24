@@ -64,7 +64,6 @@ icons! {
     ExpandMore => "expand",
     History => "history",
     List => "list",
-    Menu => "menu",
     More => "more",
     Open => "open",
     Pdf => "pdf",

@@ -3,15 +3,10 @@
 //! El lector necesita al menos [`READER_MIN`] de ancho. Si la ventana no da
 //! para los tres, se pliega solo primero el menú y luego la lista. Mientras,
 //! la lista se estrecha hasta [`LIST_MIN`]. El usuario también los pliega con
-//! un botón o con Ctrl+B y Ctrl+Shift+B, y eso se guarda en los ajustes.
+//! Ctrl+B y Ctrl+Shift+B, y eso se guarda en los ajustes. No hay botones:
+//! Rubén los prefiere fuera de la barra (#29).
 
-use gpui::prelude::*;
-use gpui::{Div, actions, div, px};
-use gpui_component::tooltip::Tooltip;
-
-use crate::assets::Icon;
-use crate::palette::Palette;
-use crate::ui::widgets::icon_button;
+use gpui::actions;
 
 actions!(atalaya, [ToggleSidebar, ToggleList]);
 
@@ -107,27 +102,6 @@ impl Panels {
             self.list_peek = false;
         }
     }
-}
-
-/// Botones para plegar el menú y la lista, al principio de la barra del
-/// lector. Lanzan las mismas acciones que los atajos; las recoge `AppView`.
-pub fn buttons(p: &Palette) -> Div {
-    div()
-        .flex()
-        .flex_none()
-        .gap(px(2.))
-        .child(
-            icon_button("toggle-sidebar", Icon::Menu, p)
-                .tooltip(|window, cx| Tooltip::new("Menú lateral (Ctrl+B)").build(window, cx))
-                .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleSidebar), cx)),
-        )
-        .child(
-            icon_button("toggle-list", Icon::List, p)
-                .tooltip(|window, cx| {
-                    Tooltip::new("Lista de artículos (Ctrl+Shift+B)").build(window, cx)
-                })
-                .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleList), cx)),
-        )
 }
 
 #[cfg(test)]
