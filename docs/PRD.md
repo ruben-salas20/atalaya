@@ -51,7 +51,7 @@ Cada requisito tiene un código para citarlo desde las issues.
 | Código | Requisito |
 |---|---|
 | T1 | Del inglés al español. El chino llega más adelante |
-| T2 | Los títulos se traducen siempre; el texto completo, al abrir o guardar (ver ADR 0003) |
+| T2 | Los títulos se traducen siempre; el texto completo, al abrir o guardar (ver ADR 0003). El paper completo, solo a petición (P7) |
 | T3 | Lo que ya está en español no se traduce |
 | T4 | Nada se traduce dos veces |
 | T5 | La traducción conserva enlaces, listas e imágenes del artículo |
@@ -66,6 +66,7 @@ Cada requisito tiene un código para citarlo desde las issues.
 | P4 | Un paper abierto muestra el resumen traducido y enlaces a su página de arXiv y a su PDF |
 | P5 | Los papers guardados aparecen en Guardados, sincronizados entre aparatos |
 | P6 | Se recuerdan las búsquedas recientes |
+| P7 | Un botón «Leer completo» traduce el paper entero desde su HTML de arXiv, con fórmulas y tablas. Si el paper no tiene HTML, queda el enlace al PDF (ver ADR 0010) |
 
 ### Feeds
 
@@ -101,6 +102,5 @@ Estilo: minimalista en negro, blanco y gris; letra Roboto; tema claro u oscuro s
 
 Cada uno se analiza aparte cuando lo principal funcione:
 
-1. Traducir el paper completo, no solo el resumen.
-2. Traducción local en las apps, como respaldo.
-3. Traducción del chino al español.
+1. Traducción local en las apps, como respaldo.
+2. Traducción del chino al español.
