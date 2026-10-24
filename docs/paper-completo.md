@@ -1,14 +1,14 @@
 # Leer el paper completo de arXiv: propuesta
 
-Propuesta de la issue #13, probada el 2026-10-23 con tres papers reales. Está pendiente de que Rubén la apruebe; si la aprueba, se escribe su ADR y se abren las issues de código.
+Propuesta de la issue #13, probada el 2026-10-23 con tres papers reales. Rubén la aprobó el mismo día, con dos cambios: MathJax corre dentro del servicio y se traducen las celdas de las tablas. La decisión está en el ADR 0010; el trabajo, en las issues #38 (servicio), #39 (Android) y #40 (PC).
 
-## La propuesta en cinco puntos
+## La decisión en cinco puntos
 
 1. **Fuente: la versión HTML de arXiv, no el PDF.** El HTML trae párrafos, secciones, tablas e imágenes ya separados, y cada fórmula con su LaTeX (el código con el que el autor la escribió). Del PDF solo sale texto plano con las fórmulas rotas.
-2. **Traducción: párrafo a párrafo, como los artículos.** Cada fórmula viaja al modelo como una marca con su LaTeX dentro: `<m id="3">\rightarrow</m>`. El modelo traduce el texto de alrededor y deja la marca igual. No se traducen las fórmulas, la bibliografía ni el contenido de las tablas.
-3. **Fórmulas: el servicio las convierte en imágenes SVG** (imágenes vectoriales, nítidas a cualquier tamaño) con MathJax, la biblioteca de fórmulas más usada en la web. Así las dos apps pintan lo mismo y ninguna necesita un motor de fórmulas propio.
+2. **Traducción: párrafo a párrafo, como los artículos.** Cada fórmula viaja al modelo como una marca con su LaTeX dentro: `<m id="3">\rightarrow</m>`. El modelo traduce el texto de alrededor y deja la marca igual. No se traducen las fórmulas, la bibliografía ni los números de las tablas.
+3. **Fórmulas: el servicio las convierte en imágenes SVG** (imágenes vectoriales, nítidas a cualquier tamaño) con MathJax, la biblioteca de fórmulas más usada en la web. MathJax corre dentro del servicio. Así las dos apps pintan lo mismo y ninguna necesita un motor de fórmulas propio.
 4. **Apps: bloques nuevos para fórmulas y tablas.** Android añade la fórmula dentro de la línea de texto y un bloque de tabla. El PC usa los elementos en línea de su biblioteca de texto, que ya pintan SVG; las tablas ya las sabe pintar.
-5. **Se lee a petición, no al abrir.** Un paper tarda de 3 a 19 minutos en traducirse. Propongo un botón «Leer completo» que muestre las secciones según llegan.
+5. **Se lee a petición, no al abrir.** Un paper tarda de 3 a 19 minutos en traducirse. Se lee con un botón «Leer completo», que muestra las secciones según llegan. Cómo se entrega por partes lo decide la issue #32.
 
 ## Los tres papers de prueba
 
@@ -82,7 +82,7 @@ Mientras traduce un paper, la GPU no traduce títulos nuevos: comparten cola. Po
 
 | Opción | A favor | En contra |
 |---|---|---|
-| **A. El servicio convierte cada fórmula en SVG con MathJax** (recomendada) | Las dos apps pintan igual; las dos ya muestran imágenes. Se hace una vez por paper y se guarda | El servicio necesita Node.js (el entorno que ejecuta JavaScript fuera del navegador) para MathJax |
+| **A. El servicio convierte cada fórmula en SVG con MathJax** (elegida) | Las dos apps pintan igual; las dos ya muestran imágenes. Se hace una vez por paper y se guarda | El servicio necesita Node.js (el entorno que ejecuta JavaScript fuera del navegador) para MathJax |
 | B. Android muestra el paper en un WebView (un navegador dentro de la app) con MathML | Chrome ya pinta MathML | No sirve en el PC: GPUI no tiene navegador. Rompe el tema y el tamaño de letra de la app |
 | C. Pasar las fórmulas a texto Unicode (β, ξ, x²) | Sin imágenes | No sirve para fracciones, raíces ni matrices |
 
@@ -100,22 +100,22 @@ La ecuación (1.1) del paper KPZ, convertida así, se ve correcta: ∂ₜh(t,x) 
 
 ## 4. Tablas e imágenes
 
-- **Tablas:** se muestran sin traducir las celdas, que casi siempre son números y nombres de métodos. Se traduce su título (el pie de tabla). Android necesita un bloque nuevo con desplazamiento lateral, porque una tabla ancha no cabe en el móvil. El PC ya pinta `<table>`.
+- **Tablas:** se traducen el pie y las celdas con palabras; los números quedan igual. Las celdas con palabras son el 22 % y el 37 % en los dos papers con tablas: cabeceras y nombres de fila, como «Backbone learning rate». Suman unos 1700 caracteres por paper, lo mismo que los pies. Se manda la tabla entera de una vez, para que el modelo tenga contexto en celdas cortas como «Box» y no traduzca nombres propios como AdamW; esto falta probarlo (#38). Android necesita un bloque nuevo con desplazamiento lateral, porque una tabla ancha no cabe en el móvil. El PC ya pinta `<table>`.
 - **Imágenes:** se muestran como en los artículos. Se traduce su pie.
 
-## Qué haría falta construir
+## Qué hay que construir
 
-Si Rubén aprueba, se abrirían estas issues de código:
+1. **Servicio (#38):** descargar el HTML de arXiv, dividirlo en secciones y párrafos, traducir con marcas de LaTeX, convertir fórmulas a SVG y guardar el resultado. Un endpoint nuevo en `atalaya-api` para pedir el paper completo y su progreso.
+2. **Android (#39):** fórmulas en línea y aparte, bloque de tabla, SVG con Coil (necesita su extensión `coil-svg`) y el botón «Leer completo».
+3. **PC (#40):** fórmulas con `InlineElement` y el botón «Leer completo».
 
-1. **Servicio:** descargar el HTML de arXiv, dividirlo en secciones y párrafos, traducir con marcas de LaTeX, convertir fórmulas a SVG y guardar el resultado. Un endpoint nuevo en `atalaya-api` para pedir el paper completo y su progreso.
-2. **Android:** fórmulas en línea y aparte, bloque de tabla, SVG con Coil (necesita su extensión `coil-svg`) y el botón «Leer completo».
-3. **PC:** fórmulas con `InlineElement` y el botón «Leer completo».
+## Decisiones de Rubén
 
-## Preguntas para Rubén
-
-1. **¿Cuándo se traduce el paper completo?** Recomiendo un botón «Leer completo», con progreso por secciones. Traducirlo al abrir, como dice el ADR 0003 para artículos, ocuparía la GPU hasta 19 minutos por paper.
-2. **¿Dónde corre MathJax?** Recomiendo un contenedor pequeño de Node.js en `ai-lab`, al lado del servicio, al que este llama por la red interna. La otra opción es meter Node.js en la imagen del servicio. Las dos cambian `docker-compose.yml`.
-3. **¿Se traducen las celdas de las tablas?** Recomiendo que no, al menos al principio: solo el pie de tabla.
+| Pregunta | Decisión | Por qué |
+|---|---|---|
+| ¿Cuándo se traduce el paper completo? | A petición, con un botón «Leer completo», mostrando la traducción según llega | Traducirlo al abrir ocuparía la GPU hasta 19 minutos por paper. La entrega por partes se estudia en #32, también para artículos |
+| ¿Dónde corre MathJax? | Dentro del servicio: Node.js en su imagen, lanzado una vez por paper | Solo cambia el `Dockerfile` del servicio; no hay otro contenedor que vigilar en `ai-lab`. MathJax tarda 4 s en el paper más pesado |
+| ¿Se traducen las celdas de las tablas? | Sí, las que tienen palabras; los números no | Son las cabeceras y nombres de fila que hacen falta para entender la tabla, y cuestan unos 30 s de GPU por paper |
 
 ## Cómo repetir las pruebas
 
