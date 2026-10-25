@@ -16,12 +16,22 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val container = (application as AtalayaApp).container
-        if (savedInstanceState == null) Sync.syncNow(this)
+        if (savedInstanceState == null) {
+            Sync.syncNow(this)
+            container.updates.checkOnOpen()
+        }
         setContent {
             val settings by container.settings.settings.collectAsStateWithLifecycle(initialValue = Settings())
             AtalayaTheme(fontScale = settings.fontScale) {
                 AtalayaNavHost(container)
             }
         }
+    }
+
+    // Al volver de los permisos de Android sigue una actualización que esperaba,
+    // esté el usuario en la pantalla que esté (ADR 0012).
+    override fun onResume() {
+        super.onResume()
+        (application as AtalayaApp).container.updates.onResumed()
     }
 }

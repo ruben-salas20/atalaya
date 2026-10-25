@@ -12,8 +12,8 @@ Te lanzó el orquestador de una sesión para hacer **una parte** de una issue de
 
 ## Límites
 
-- **Trabajas solo en el repo.** Las APIs de `ai-lab` (Miniflux, llama-swap, el servicio) se usan por su dominio para probar. Su configuración no se toca: nada de `ssh ai-lab` para cambiar archivos o contenedores.
-- **La app de Android se compila con `android/compilar.sh`.** Crea un contenedor temporal en `ai-lab` y es lo único que puedes lanzar allí. Ver `android/README.md`.
+- **Trabajas solo en el repo.** Las APIs de `ai-lab` (Miniflux, llama-swap, el servicio) se usan por su dominio para probar. Su configuración no se toca: ni archivos de `~/servicios` ni contenedores. Desplegar es cosa del orquestador.
+- **Compilas en local, en `ai-lab`, de uno en uno.** Android con `android/compilar.sh` (ver `android/README.md`); Rust con `. /data/bots/env.sh` antes de `cargo`. Otras tareas pueden compilar a la vez y la memoria es poca: envuelve cada compilación o prueba en `flock /tmp/atalaya-compilar.lock`, por ejemplo `flock /tmp/atalaya-compilar.lock android/compilar.sh test` o `flock /tmp/atalaya-compilar.lock cargo test -j 2`. No arranques el emulador.
 - **No usas el móvil.** Hay uno solo y lo maneja el orquestador.
 - **Los documentos y las issues los cambia el orquestador:** las issues de GitHub, `docs/PRD.md`, `docs/adr/`, `docs/diseño/` y este archivo. Si crees que alguno está mal o falta algo, va en el informe.
 - **Si falta un dato que solo sabe Rubén,** para en ese punto, haz commit de lo que funcione y pon la pregunta en el informe. Una suposición tuya se fusionaría como si fuera una decisión.

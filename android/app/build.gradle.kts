@@ -13,6 +13,10 @@ val appVersion: String = Regex("""(?ms)^\[workspace\.package\]$.*?^version = "([
 val appVersionCode: Int = appVersion.split(".").map(String::toInt)
     .let { (major, minor, patch) -> major * 10000 + minor * 100 + patch }
 
+// Dónde se busca la última versión (ADR 0012). Con -PreleasesApi=<url> se prueba con un servidor falso.
+val releasesApi: String = (project.findProperty("releasesApi") as String?)
+    ?: "https://api.github.com/repos/ruben-salas20/atalaya/releases/latest"
+
 // Clave de publicación (ADR 0012). Solo la tienen Actions y ai-lab; sin
 // estas variables, assembleRelease sale sin firmar.
 val releaseKeystore: String? = System.getenv("ATALAYA_KEYSTORE")
@@ -27,6 +31,7 @@ android {
         targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersion
+        buildConfigField("String", "RELEASES_API", "\"$releasesApi\"")
     }
 
     signingConfigs {
@@ -54,6 +59,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

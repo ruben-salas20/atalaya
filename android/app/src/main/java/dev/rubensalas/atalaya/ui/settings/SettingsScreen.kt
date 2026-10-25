@@ -49,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -57,11 +58,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.rubensalas.atalaya.AppContainer
+import dev.rubensalas.atalaya.BuildConfig
 import dev.rubensalas.atalaya.data.api.ApiException
 import dev.rubensalas.atalaya.data.settings.Settings
 import dev.rubensalas.atalaya.data.settings.SwipeAction
+import dev.rubensalas.atalaya.data.update.UpdateCheck
+import dev.rubensalas.atalaya.data.update.UpdateState
 import dev.rubensalas.atalaya.ui.relativeTime
 import dev.rubensalas.atalaya.ui.theme.Atalaya
+import dev.rubensalas.atalaya.ui.update.startUpdate
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -81,8 +86,21 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
     val repo = container.settings
     val settings by repo.settings.collectAsStateWithLifecycle(initialValue = null)
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val update by container.updates.state.collectAsStateWithLifecycle()
     var probe by remember { mutableStateOf<ProbeState>(ProbeState.Idle) }
     var dialog by remember { mutableStateOf<EditDialog?>(null) }
+    // Resultado de «Buscar actualizaciones» en esta pantalla. Null: todavía no se ha buscado.
+    var updateCheck by remember { mutableStateOf<UpdateCheck?>(null) }
+    var checking by remember { mutableStateOf(false) }
+
+    fun runUpdateCheck() {
+        checking = true
+        scope.launch {
+            updateCheck = container.updates.checkNow()
+            checking = false
+        }
+    }
 
     // «hace 5 min» se refresca solo mientras la pantalla está abierta.
     var tick by remember { mutableStateOf(0) }
@@ -168,6 +186,16 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
             SectionHead("Gestos")
             SettingItem("Deslizar a la izquierda", s.swipeLeft.label, onClick = { dialog = EditDialog.SwipeLeft })
             SettingItem("Deslizar a la derecha", s.swipeRight.label, onClick = { dialog = EditDialog.SwipeRight })
+            Separator()
+
+            SectionHead("Versión")
+            SettingItem("Versión instalada", BuildConfig.VERSION_NAME)
+            SettingItem(
+                title = "Buscar actualizaciones",
+                subtitle = updateText(s.lastUpdateCheckAt != null, update, updateCheck, checking),
+                onClick = { if (!checking) runUpdateCheck() },
+                trailing = { UpdateTrailing(update, onUpdate = { startUpdate(context, container.updates) }) },
+            )
         }
 
         when (dialog) {
@@ -205,6 +233,30 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
             null -> Unit
         }
     }
+}
+
+/** Lo que dice la fila «Buscar actualizaciones». Lo más urgente primero. */
+private fun updateText(checkedBefore: Boolean, update: UpdateState, check: UpdateCheck?, checking: Boolean): String = when {
+    checking -> "Buscando…"
+    update.busy -> "Preparando la actualización…"
+    update.waitingPermission -> "Falta permitir instalar desde Atalaya"
+    update.error != null -> update.error
+    update.available != null -> "Hay una versión nueva: ${update.available.version}"
+    check is UpdateCheck.Failed -> check.message
+    checkedBefore || check == UpdateCheck.UpToDate -> "Estás al día"
+    else -> "Sin comprobar"
+}
+
+/** El botón «Actualizar», solo si hay una versión nueva y no se está instalando. */
+@Composable
+private fun UpdateTrailing(update: UpdateState, onUpdate: () -> Unit) {
+    if (update.available == null || update.busy) return
+    OutlinedButton(
+        onClick = onUpdate,
+        shape = CircleShape,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
+        modifier = Modifier.height(32.dp),
+    ) { Text("Actualizar", fontSize = 13.5.sp, fontWeight = FontWeight.Medium) }
 }
 
 @Suppress("UNUSED_PARAMETER")
