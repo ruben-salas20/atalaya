@@ -7,6 +7,7 @@ mod images;
 mod palette;
 mod settings;
 mod ui;
+mod update;
 
 use std::sync::Arc;
 

@@ -1,8 +1,8 @@
 //! Piezas de interfaz que se repiten, con las medidas de las maquetas.
 
 use gpui::{
-    Anchor, ClipboardItem, Div, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement,
-    Pixels, Stateful, Styled, Svg, div, px, svg,
+    Anchor, ClipboardItem, Div, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Stateful, Styled, Svg, div, px, svg,
 };
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::menu::{DropdownMenu, PopupMenuItem};
@@ -60,6 +60,24 @@ pub fn bar(p: &Palette) -> Div {
         .gap(px(6.))
         .border_b_1()
         .border_color(p.divider)
+}
+
+/// Botón con borde redondo (`.pill-btn`).
+pub fn pill(id: &'static str, label: &'static str, p: &Palette) -> Stateful<Div> {
+    let hover = p.surface;
+    div()
+        .id(id)
+        .flex_none()
+        .cursor_pointer()
+        .text_size(px(13.))
+        .font_weight(FontWeight::MEDIUM)
+        .border_1()
+        .border_color(p.text)
+        .rounded(px(15.))
+        .px(px(12.))
+        .py(px(5.))
+        .hover(move |s| s.bg(hover))
+        .child(label)
 }
 
 /// Etiqueta del idioma original (`.badge`).

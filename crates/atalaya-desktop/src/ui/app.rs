@@ -18,6 +18,7 @@ use crate::ui::papers::search::{PaperSearch, PaperSearchEvent};
 use crate::ui::reader::{Reader, ReaderEvent};
 use crate::ui::settings::SettingsScreen;
 use crate::ui::sidebar::{Sidebar, SidebarEvent, Source};
+use crate::ui::updates::{UpdateBanner, Updates};
 
 /// Lo que ocupa la ventana a la derecha del menú.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,6 +46,8 @@ pub struct AppView {
     paper_search: Entity<PaperSearch>,
     paper_reader: Entity<PaperReader>,
     settings: Entity<SettingsScreen>,
+    /// Aviso de versión nueva, encima de la lista y el lector.
+    update_banner: Entity<UpdateBanner>,
     /// Foco de la ventana entera. Sin un foco, GPUI no entrega las teclas a
     /// la vista y no llegarían Ctrl+F ni los atajos de los paneles.
     focus: FocusHandle,
@@ -59,7 +62,9 @@ impl AppView {
         let entry_list = cx.new(|cx| EntryList::new(initial, cx));
         let reader = cx.new(|_| Reader::default());
         let feeds = cx.new(|cx| FeedsScreen::new(window, cx));
-        let settings = cx.new(|cx| SettingsScreen::new(window, cx));
+        let updates = cx.new(Updates::new);
+        let update_banner = cx.new(|cx| UpdateBanner::new(updates.clone(), cx));
+        let settings = cx.new(|cx| SettingsScreen::new(window, cx, updates));
         let paper_search = cx.new(|cx| PaperSearch::new(window, cx));
         let paper_reader = cx.new(|_| PaperReader::default());
         let focus = cx.focus_handle();
@@ -173,6 +178,7 @@ impl AppView {
             paper_search,
             paper_reader,
             settings,
+            update_banner,
             focus,
             _subscriptions: subscriptions,
         }
@@ -229,18 +235,32 @@ impl Render for AppView {
                     |d| d.child(self.sidebar.clone()),
                 );
         match self.screen {
-            Screen::Reading => root
-                .when_some(layout.list, |d, width| {
-                    d.child(
+            Screen::Reading => root.child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .flex()
+                    .flex_col()
+                    .child(self.update_banner.clone())
+                    .child(
                         div()
-                            .w(px(width))
-                            .h_full()
-                            .flex_none()
-                            .min_w_0()
-                            .child(self.entry_list.clone()),
-                    )
-                })
-                .child(self.reader.clone()),
+                            .flex_1()
+                            .min_h_0()
+                            .flex()
+                            .when_some(layout.list, |d, width| {
+                                d.child(
+                                    div()
+                                        .w(px(width))
+                                        .h_full()
+                                        .flex_none()
+                                        .min_w_0()
+                                        .child(self.entry_list.clone()),
+                                )
+                            })
+                            .child(self.reader.clone()),
+                    ),
+            ),
             Screen::Papers => root
                 .child(self.paper_search.clone())
                 .child(self.paper_reader.clone()),
