@@ -5,6 +5,18 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// La versión sale del Cargo.toml del workspace, para que el móvil y el PC
+// digan lo mismo (ADR 0012). versionCode crece con cada versión X.Y.Z.
+val appVersion: String = Regex("""(?ms)^\[workspace\.package\]$.*?^version = "([^"]+)"""")
+    .find(rootDir.resolve("../Cargo.toml").readText())?.groupValues?.get(1)
+    ?: error("No encuentro la versión de [workspace.package] en ../Cargo.toml")
+val appVersionCode: Int = appVersion.split(".").map(String::toInt)
+    .let { (major, minor, patch) -> major * 10000 + minor * 100 + patch }
+
+// Clave de publicación (ADR 0012). Solo la tienen Actions y ai-lab; sin
+// estas variables, assembleRelease sale sin firmar.
+val releaseKeystore: String? = System.getenv("ATALAYA_KEYSTORE")
+
 android {
     namespace = "dev.rubensalas.atalaya"
     compileSdk = 37
@@ -13,13 +25,25 @@ android {
         applicationId = "dev.rubensalas.atalaya"
         minSdk = 34
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersion
+    }
+
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("publicacion") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("ATALAYA_KEYSTORE_PASSWORD")
+                keyAlias = "atalaya"
+                keyPassword = System.getenv("ATALAYA_KEYSTORE_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("publicacion")
         }
     }
 
