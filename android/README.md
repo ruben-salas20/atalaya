@@ -33,8 +33,10 @@ adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 | `data/list/` | De dónde salen la lista y los artículos. `OfflineListRepository` junta el servicio con la copia del móvil |
 | `data/local/` | La base Room del móvil: filas de la lista, texto de guardados y abiertos, y el menú lateral |
 | `data/sync/` | La sincronización en segundo plano con WorkManager: cada 30 minutos y al abrir la app |
+| `data/update/` | Buscar la última versión en GitHub Releases, bajar el APK, comprobar su huella e instalarlo con `PackageInstaller` (ADR 0012) |
 | `data/papers/` | Búsqueda y guardado de papers, siempre contra el servicio, y las búsquedas recientes, guardadas solo en el móvil |
 | `ui/theme/` | Colores de las maquetas, Roboto y el tamaño de letra. Los grises se piden con `Atalaya.colors` |
+| `ui/update/` | El aviso de versión nueva de la lista |
 | `ui/navigation/` | Las rutas entre pantallas |
 | `ui/settings/`, `ui/list/`, `ui/article/`, `ui/feeds/`, `ui/papers/` | Una carpeta por grupo de pantallas |
 

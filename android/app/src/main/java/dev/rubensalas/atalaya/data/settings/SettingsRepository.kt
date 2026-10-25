@@ -32,6 +32,8 @@ data class Settings(
     val lastConnectedAt: Instant? = null,
     /** Última sincronización completa con el servicio (S2). */
     val lastSyncAt: Instant? = null,
+    /** Última comprobación de versión nueva que llegó a GitHub (ADR 0012). */
+    val lastUpdateCheckAt: Instant? = null,
 ) {
     val serverConfig get() = ServerConfig(serviceUrl, apiKey)
 
@@ -56,6 +58,7 @@ class SettingsRepository(context: Context) {
             swipeRight = p[SWIPE_RIGHT]?.let(::swipeAction) ?: SwipeAction.Star,
             lastConnectedAt = p[LAST_CONNECTED_AT]?.let(Instant::ofEpochMilli),
             lastSyncAt = p[LAST_SYNC_AT]?.let(Instant::ofEpochMilli),
+            lastUpdateCheckAt = p[LAST_UPDATE_CHECK_AT]?.let(Instant::ofEpochMilli),
         )
     }
 
@@ -74,6 +77,8 @@ class SettingsRepository(context: Context) {
         it[LAST_CONNECTED_AT] = at.toEpochMilli()
     }
 
+    suspend fun markUpdateChecked(at: Instant = Instant.now()) = store.edit { it[LAST_UPDATE_CHECK_AT] = at.toEpochMilli() }
+
     private fun swipeAction(name: String) = SwipeAction.entries.firstOrNull { it.name == name }
 
     private companion object {
@@ -84,5 +89,6 @@ class SettingsRepository(context: Context) {
         val SWIPE_RIGHT = stringPreferencesKey("swipe_right")
         val LAST_CONNECTED_AT = longPreferencesKey("last_connected_at")
         val LAST_SYNC_AT = longPreferencesKey("last_sync_at")
+        val LAST_UPDATE_CHECK_AT = longPreferencesKey("last_update_check_at")
     }
 }

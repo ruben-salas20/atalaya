@@ -47,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -69,6 +70,8 @@ import dev.rubensalas.atalaya.data.api.Id
 import dev.rubensalas.atalaya.data.api.View
 import dev.rubensalas.atalaya.data.settings.SwipeAction
 import dev.rubensalas.atalaya.ui.theme.Atalaya
+import dev.rubensalas.atalaya.ui.update.UpdateBanner
+import dev.rubensalas.atalaya.ui.update.startUpdate
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -87,10 +90,16 @@ fun ListScreen(
     val vm: ListViewModel = viewModel(factory = viewModelFactory { initializer { ListViewModel(container.list) } })
     val state by vm.state.collectAsStateWithLifecycle()
     val settings by container.settings.settings.collectAsStateWithLifecycle(initialValue = null)
+    val update by container.updates.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val c = Atalaya.colors
 
     // Al entrar y al volver de un artículo, de los ajustes o de los feeds.
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refresh() }
+    // Al volver de los permisos de Android, sigue una actualización que esperaba (ADR 0012).
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        vm.refresh()
+        container.updates.onResumed()
+    }
 
     // Las horas relativas («2 h», «Sincronizado (5 min)») se refrescan solas.
     var now by remember { mutableStateOf(Instant.now()) }
@@ -218,36 +227,43 @@ fun ListScreen(
                 }
             },
         ) { padding ->
-            PullToRefreshBox(
-                isRefreshing = state.refreshing,
-                onRefresh = { vm.refresh(pulled = true) },
-                modifier = Modifier.fillMaxSize().padding(padding),
-            ) {
-                when {
-                    state.entries.isEmpty() && state.loading -> Centered { CircularProgressIndicator(color = c.text2) }
-                    state.entries.isEmpty() && state.error != null -> Centered {
-                        Text(state.error.orEmpty(), color = c.text2, textAlign = TextAlign.Center)
-                        OutlinedButton(onClick = { vm.refresh() }) { Text("Reintentar") }
-                        OutlinedButton(onClick = onOpenSettings) { Text("Ajustes") }
-                    }
-                    state.entries.isEmpty() && state.sidebar != null -> Centered {
-                        Text(emptyText(state.selection, state.search), color = c.text3, textAlign = TextAlign.Center)
-                    }
-                    else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                        items(state.entries, key = { it.id }) { entry ->
-                            SwipeRow(
-                                entry = entry,
-                                left = settings?.swipeLeft ?: SwipeAction.MarkRead,
-                                right = settings?.swipeRight ?: SwipeAction.Star,
-                                onSwipe = { vm.swipe(entry, it) },
-                            ) {
-                                EntryRow(entry, now = now, onClick = { onOpenArticle(entry.id) })
-                            }
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                UpdateBanner(
+                    state = update,
+                    onUpdate = { startUpdate(context, container.updates) },
+                    onClose = container.updates::closeBanner,
+                )
+                PullToRefreshBox(
+                    isRefreshing = state.refreshing,
+                    onRefresh = { vm.refresh(pulled = true) },
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                ) {
+                    when {
+                        state.entries.isEmpty() && state.loading -> Centered { CircularProgressIndicator(color = c.text2) }
+                        state.entries.isEmpty() && state.error != null -> Centered {
+                            Text(state.error.orEmpty(), color = c.text2, textAlign = TextAlign.Center)
+                            OutlinedButton(onClick = { vm.refresh() }) { Text("Reintentar") }
+                            OutlinedButton(onClick = onOpenSettings) { Text("Ajustes") }
                         }
-                        if (state.loadingMore) {
-                            item(key = "more") {
-                                Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(color = c.text2, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        state.entries.isEmpty() && state.sidebar != null -> Centered {
+                            Text(emptyText(state.selection, state.search), color = c.text3, textAlign = TextAlign.Center)
+                        }
+                        else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                            items(state.entries, key = { it.id }) { entry ->
+                                SwipeRow(
+                                    entry = entry,
+                                    left = settings?.swipeLeft ?: SwipeAction.MarkRead,
+                                    right = settings?.swipeRight ?: SwipeAction.Star,
+                                    onSwipe = { vm.swipe(entry, it) },
+                                ) {
+                                    EntryRow(entry, now = now, onClick = { onOpenArticle(entry.id) })
+                                }
+                            }
+                            if (state.loadingMore) {
+                                item(key = "more") {
+                                    Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(color = c.text2, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                                    }
                                 }
                             }
                         }

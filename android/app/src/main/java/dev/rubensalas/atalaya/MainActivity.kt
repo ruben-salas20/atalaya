@@ -16,7 +16,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val container = (application as AtalayaApp).container
-        if (savedInstanceState == null) Sync.syncNow(this)
+        if (savedInstanceState == null) {
+            Sync.syncNow(this)
+            container.updates.checkOnOpen()
+        }
         setContent {
             val settings by container.settings.settings.collectAsStateWithLifecycle(initialValue = Settings())
             AtalayaTheme(fontScale = settings.fontScale) {
