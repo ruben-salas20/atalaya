@@ -57,7 +57,9 @@ class UpdateRepository(
 
     /**
      * Pide la última Release y actualiza el aviso. Lo usan «Buscar actualizaciones»
-     * y la comprobación al abrir. Solo guarda la hora si GitHub respondió.
+     * y la comprobación al abrir. Solo guarda la hora si no hay nada nuevo: mientras
+     * haya una versión pendiente, cada apertura vuelve a mirar y el aviso no se pierde
+     * al cerrar la app.
      */
     suspend fun checkNow(): UpdateCheck {
         val result = checker.check()
@@ -69,7 +71,7 @@ class UpdateRepository(
             UpdateCheck.UpToDate -> _state.update { it.copy(available = null, bannerClosed = false) }
             is UpdateCheck.Failed -> Unit
         }
-        if (result !is UpdateCheck.Failed) settings.markUpdateChecked(Instant.now())
+        if (result == UpdateCheck.UpToDate) settings.markUpdateChecked(Instant.now())
         return result
     }
 

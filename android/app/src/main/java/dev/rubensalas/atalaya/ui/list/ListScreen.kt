@@ -95,11 +95,7 @@ fun ListScreen(
     val c = Atalaya.colors
 
     // Al entrar y al volver de un artículo, de los ajustes o de los feeds.
-    // Al volver de los permisos de Android, sigue una actualización que esperaba (ADR 0012).
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        vm.refresh()
-        container.updates.onResumed()
-    }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refresh() }
 
     // Las horas relativas («2 h», «Sincronizado (5 min)») se refrescan solas.
     var now by remember { mutableStateOf(Instant.now()) }

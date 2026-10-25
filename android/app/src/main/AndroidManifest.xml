@@ -5,6 +5,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Para instalar la versión nueva que la propia app descarga (ADR 0012). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Con este permiso, cuando la app ya se instaló a sí misma, Android aplica
+         las siguientes actualizaciones sin pedir confirmación (#53). -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <application
         android:name=".AtalayaApp"

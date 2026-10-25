@@ -27,4 +27,11 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    // Al volver de los permisos de Android sigue una actualización que esperaba,
+    // esté el usuario en la pantalla que esté (ADR 0012).
+    override fun onResume() {
+        super.onResume()
+        (application as AtalayaApp).container.updates.onResumed()
+    }
 }
