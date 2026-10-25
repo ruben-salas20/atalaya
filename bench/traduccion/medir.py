@@ -20,6 +20,8 @@ import time
 import urllib.error
 import urllib.request
 
+import corpus
+
 HERE = pathlib.Path(__file__).resolve().parent
 DEFAULT_URL = 'https://llama.rubensalas.dev'
 WARMUP_TEXT = 'Hello, world.'
@@ -104,7 +106,7 @@ def main():
     ap.add_argument('modelo', help='id del modelo en llama-swap, p. ej. gemma-4-e4b-rapido')
     ap.add_argument('--plantilla', help='clave de plantillas.json; por defecto se deduce del id del modelo')
     ap.add_argument('--url', default=DEFAULT_URL, help='base de llama-swap (por defecto %(default)s)')
-    ap.add_argument('--textos', default=str(HERE / 'textos.json'))
+    ap.add_argument('--textos', default=str(corpus.default_path()))
     ap.add_argument('--tipos', default='titulo,resumen,noticia', help='qué tipos medir, separados por comas')
     ap.add_argument('--limite', type=int, help='como mucho N textos de cada tipo (para pruebas rápidas)')
     ap.add_argument('--modo', choices=('parrafos', 'entero'), default='parrafos',
@@ -119,11 +121,11 @@ def main():
     base = args.url.rstrip('/')
     templates = json.loads((HERE / 'plantillas.json').read_text())
     tpl_name, tpl = pick_template(templates, args.modelo, args.plantilla)
-    corpus = json.loads(pathlib.Path(args.textos).read_text())['textos']
     kinds = [k.strip() for k in args.tipos.split(',') if k.strip()]
+    texts = corpus.load(args.textos, kinds)
     items = []
     for kind in kinds:
-        chosen = [t for t in corpus if t['tipo'] == kind]
+        chosen = [t for t in texts if t['tipo'] == kind]
         items += chosen[:args.limite] if args.limite else chosen
 
     stamp = dt.datetime.now().strftime('%Y%m%d-%H%M%S')

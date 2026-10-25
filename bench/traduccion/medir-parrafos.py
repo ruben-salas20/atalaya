@@ -22,6 +22,8 @@ import pathlib
 import subprocess
 import sys
 
+import corpus
+
 HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 DEFAULT_URL = 'https://llama.rubensalas.dev'
@@ -47,14 +49,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--url', default=DEFAULT_URL, help='base de llama-swap (por defecto %(default)s)')
     ap.add_argument('--modelo', default=DEFAULT_MODEL, help='id del modelo en llama-swap (por defecto %(default)s)')
-    ap.add_argument('--textos', default=str(HERE / 'textos.json'))
+    ap.add_argument('--textos', default=str(corpus.default_path()))
     ap.add_argument('--limite', type=int, help='como mucho N noticias (para pruebas rápidas)')
     ap.add_argument('--salida', help='archivo de resultados; por defecto resultados/parrafos-<commit>-<fecha>.json')
     args = ap.parse_args()
     sys.stdout.reconfigure(line_buffering=True)
 
-    corpus = json.loads(pathlib.Path(args.textos).read_text())['textos']
-    noticias = [t for t in corpus if t['tipo'] == 'noticia' and t['formato'] == 'html']
+    noticias = [t for t in corpus.load(args.textos, {'noticia'}) if t['formato'] == 'html']
     if args.limite:
         noticias = noticias[:args.limite]
     articles = [{'id': t['id'], 'html': t['texto']} for t in noticias]
