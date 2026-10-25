@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solo en depuración: deja probar la actualización con un servidor falso por
+     HTTP, por ejemplo http://10.0.2.2:8765 desde el emulador (#53). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:usesCleartextTraffic="true" />
+</manifest>
