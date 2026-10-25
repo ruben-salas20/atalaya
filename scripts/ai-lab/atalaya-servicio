@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Deja que el agente de mantenimiento (usuario openbot) despliegue y revise
+# el contenedor de Atalaya en ai-lab, y nada más (#57).
+#
+# Se instala como root, y openbot solo puede lanzarlo con sudo:
+#   sudo install -o root -g root -m 755 atalaya-servicio /usr/local/sbin/
+#   sudo install -o root -g root -m 440 sudoers /etc/sudoers.d/atalaya-servicio
+#
+# Uso:
+#   sudo atalaya-servicio desplegar <vX.Y.Z | main | sha-XXXXXXX>
+#   sudo atalaya-servicio logs [líneas]
+#   sudo atalaya-servicio estado
+#
+# «desplegar» descarga esa imagen de GHCR, le pone la etiqueta local
+# atalaya-server:desplegada, que es la que usa Compose, y reinicia solo el
+# contenedor atalaya. Así un `docker compose up -d` de Rubén no cambia la
+# versión, y volver atrás es desplegar la etiqueta anterior.
+#
+# No muestra la configuración de Compose ni las variables de entorno.
+set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+SERVICIOS=/home/ruben/servicios
+PROYECTO=ai-lab
+SERVICIO=atalaya
+IMAGEN=ghcr.io/ruben-salas20/atalaya-server
+LOCAL=atalaya-server:desplegada
+SALUD=https://atalaya.rubensalas.dev/health
+
+compose() {
+  docker compose --project-directory "$SERVICIOS" -p "$PROYECTO" "$@"
+}
+
+uso() {
+  echo "Uso: atalaya-servicio desplegar <vX.Y.Z|main|sha-XXXXXXX> | logs [líneas] | estado" >&2
+  exit 2
+}
+
+case "${1:-}" in
+  desplegar)
+    etiqueta=${2:-}
+    [[ "$etiqueta" =~ ^(v[0-9]+\.[0-9]+\.[0-9]+|main|sha-[0-9a-f]{7,40})$ ]] || uso
+    anterior=$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}} {{.Id}}' "$LOCAL" 2>/dev/null || echo "ninguna")
+    docker pull -q "$IMAGEN:$etiqueta"
+    docker tag "$IMAGEN:$etiqueta" "$LOCAL"
+    compose up -d --no-deps --no-build --pull never "$SERVICIO"
+    echo "Antes: $anterior"
+    echo "Ahora: $etiqueta $(docker image inspect -f '{{.Id}}' "$LOCAL")"
+    for _ in $(seq 1 30); do
+      if curl -fsS -o /dev/null --max-time 3 "$SALUD"; then
+        echo "Salud: responde"
+        exit 0
+      fi
+      sleep 2
+    done
+    echo "Salud: no responde tras 60 s. Mira: atalaya-servicio logs" >&2
+    exit 1
+    ;;
+  logs)
+    lineas=${2:-200}
+    [[ "$lineas" =~ ^[0-9]{1,5}$ ]] || uso
+    compose logs --no-color --tail "$lineas" "$SERVICIO"
+    ;;
+  estado)
+    compose ps --format 'table {{.Name}}\t{{.Image}}\t{{.Status}}' "$SERVICIO"
+    docker image inspect -f 'Imagen desplegada: {{index .Config.Labels "org.opencontainers.image.version"}} ({{index .Config.Labels "org.opencontainers.image.revision"}})' "$LOCAL" 2>/dev/null || true
+    if curl -fsS -o /dev/null --max-time 3 "$SALUD"; then echo "Salud: responde"; else echo "Salud: no responde"; fi
+    ;;
+  *)
+    uso
+    ;;
+esac
