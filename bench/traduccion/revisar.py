@@ -16,6 +16,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import corpus
+
 HERE = Path(__file__).resolve().parent
 TAG = re.compile(r'</?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>')
 HREF = re.compile(r'href="([^"]*)"')
@@ -39,6 +41,8 @@ def review(path, originals):
     data = json.loads(Path(path).read_text())
     problems = []
     for r in data['textos']:
+        if 'traduccion' not in r or 'texto' not in originals[r['id']]:
+            continue  # noticia sin texto en el repo público: ver corpus.py
         orig = originals[r['id']]['texto']
         tr = r['traduccion'] or ''
         notes = []
@@ -73,19 +77,22 @@ def review(path, originals):
 
 
 def main():
-    originals = {t['id']: t for t in json.loads((HERE / 'textos.json').read_text())['textos']}
+    originals = {t['id']: t for t in json.loads(corpus.default_path().read_text())['textos']}
     runs = []
     for path in sys.argv[1:]:
         data, problems = review(path, originals)
         runs.append(data)
         print('== %s · %s' % (data['modelo'], Path(path).name))
         print('   %d de %d textos con avisos' % (len(problems), len(data['textos'])))
+        skipped = sum(1 for r in data['textos'] if 'traduccion' not in r)
+        if skipped:
+            print('   %d sin revisar: no guardan la traducción (ver corpus.py)' % skipped)
         for tid, notes in problems:
             print('   %-12s %s' % (tid, '; '.join(notes)))
     if len(runs) > 1:
         ids = [t['id'] for t in runs[0]['textos']]
         changed = [i for i in ids
-                   if len({next(t['traduccion'] for t in run['textos'] if t['id'] == i) for run in runs}) > 1]
+                   if len({next(t.get('traduccion') for t in run['textos'] if t['id'] == i) for run in runs}) > 1]
         print('== Textos que cambian entre las %d pasadas: %d de %d' % (len(runs), len(changed), len(ids)))
 
 
