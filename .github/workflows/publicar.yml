@@ -2,6 +2,8 @@
 #
 # - Al subir una etiqueta vX.Y.Z: compila el APK firmado y el binario del PC
 #   y crea la Release, con las novedades del mensaje de la etiqueta.
+# - Siempre construye la imagen del servicio; en main y en las etiquetas la
+#   sube a ghcr.io/ruben-salas20/atalaya-server (#57).
 #   Una etiqueta con sufijo (v0.2.0-prueba1) crea una versión de prueba, que
 #   las apps no ven como la última.
 # - En cada cambio de main, a mano (workflow_dispatch) o en un PR que cambie
@@ -102,9 +104,46 @@ jobs:
           name: pc
           path: atalaya-desktop-linux-x86_64
 
+  # Imagen del servicio para ai-lab (#57). En main: etiquetas main y
+  # sha-<commit>. En una versión: vX.Y.Z y, si no es de prueba, latest. En un
+  # PR solo se construye, para comprobar el Dockerfile.
+  servidor:
+    needs: version
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/ruben-salas20/atalaya-server
+          tags: |
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && needs.version.outputs.prerelease == 'false' }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: crates/atalaya-server/Dockerfile
+          push: ${{ github.ref == 'refs/heads/main' || github.ref_type == 'tag' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=servidor
+          cache-to: type=gha,mode=max,scope=servidor
+
   publicar:
     if: github.ref_type == 'tag'
-    needs: [version, android, pc]
+    needs: [version, android, pc, servidor]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7

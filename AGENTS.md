@@ -27,7 +27,7 @@ Las issues con la etiqueta `investigación` terminan en una propuesta para Rubé
 
 Cada issue va en su sesión y su rama. Para no chocar:
 
-- **Servicio y contrato:** si tu issue necesita cambiar `crates/atalaya-api` o `crates/atalaya-server` y otra sesión trabaja en una app, haz ese cambio primero, en una rama `issue-N-servicio` y un PR propio a `main`. Lo fusionas tú; después se despliega. La otra sesión lo recoge con `git merge main` en su rama.
+- **Servicio y contrato:** si tu issue necesita cambiar `crates/atalaya-api` o `crates/atalaya-server` y otra sesión trabaja en una app, haz ese cambio primero, en una rama `issue-N-servicio` y un PR propio a `main`. Lo fusionas tú; después lo despliegas (ver «ai-lab»). La otra sesión lo recoge con `git merge main` en su rama.
 - **`ai-lab`, la GPU y el móvil:** solo una sesión a la vez. Si dudas, pregunta a Rubén.
 
 ### Qué hace cada uno
@@ -107,6 +107,7 @@ La torre de Rubén, con GPU RTX 3050 de 6 GB. Se entra con `ssh ai-lab`.
 
 - **Servicios:** en `~/servicios/`, con Docker Compose (proyecto `ai-lab`) y Caddy como única entrada. Lee `~/docs/ai-lab/ai-lab-stack.md` antes de tocar nada: tiene los puertos libres, cómo se añaden los dominios y las convenciones. Actualízalo con cada cambio.
 - **Enseña y espera.** Antes de cambiar `docker-compose.yml`, el `Caddyfile`, `llama-swap/config.yaml` o el DNS, enseña a Rubén el cambio exacto y espera su aprobación. Al aplicarlo, comprueba que los servicios que ya había siguen en marcha. Ahí viven sus contraseñas (Vaultwarden) y su DNS (AdGuard).
+- **Desplegar el servicio** (ADR 0013): tras fusionar en `main`, espera a que «Publicar versión» suba la imagen y ejecuta `sudo atalaya-servicio desplegar sha-<commit>` (o `vX.Y.Z`). `sudo atalaya-servicio logs` y `estado` sirven para revisarlo. Si el agente no tiene ese script, dale el comando a Rubén.
 - **Secretos:** van en `~/servicios/.env`. Nunca muestres sus valores; para comprobar, enseña solo los nombres.
 - **GPU:** todo modelo pasa por llama-swap (ADR 0004). Un proceso que use la GPU por su cuenta choca con los modelos que llama-swap carga. Referencia: `~/docs/ai-lab/llama-swap-referencia.md`.
 - **Dominios:** `*.rubensalas.dev`, solo dentro de Tailscale (ADR 0008). Nunca por Cloudflare Tunnel.

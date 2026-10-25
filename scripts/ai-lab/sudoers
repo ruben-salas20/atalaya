@@ -1,0 +1,4 @@
+# /etc/sudoers.d/atalaya-servicio (#57)
+# El agente de mantenimiento puede desplegar y revisar Atalaya, y nada más.
+# Comprobar antes de instalar: sudo visudo -cf sudoers
+openbot ALL=(root) NOPASSWD: /usr/local/sbin/atalaya-servicio
