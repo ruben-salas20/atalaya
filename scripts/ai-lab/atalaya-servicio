@@ -25,7 +25,7 @@ PROYECTO=ai-lab
 SERVICIO=atalaya
 IMAGEN=ghcr.io/ruben-salas20/atalaya-server
 LOCAL=atalaya-server:desplegada
-SALUD=https://atalaya.rubensalas.dev/health
+SALUD=http://127.0.0.1:3007/health
 
 compose() {
   docker compose --project-directory "$SERVICIOS" -p "$PROYECTO" "$@"
