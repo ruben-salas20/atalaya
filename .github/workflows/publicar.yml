@@ -4,13 +4,15 @@
 #   y crea la Release, con las novedades del mensaje de la etiqueta.
 #   Una etiqueta con sufijo (v0.2.0-prueba1) crea una versión de prueba, que
 #   las apps no ven como la última.
-# - A mano (workflow_dispatch) o en un PR que cambie este archivo: solo
-#   compila, para probar el flujo. Los archivos quedan como artefactos de la
-#   ejecución.
+# - En cada cambio de main, a mano (workflow_dispatch) o en un PR que cambie
+#   este archivo: solo compila. Comprueba que main compila y deja guardadas
+#   las dependencias ya compiladas, que las etiquetas reutilizan. Los
+#   archivos quedan como artefactos de la ejecución.
 name: Publicar versión
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
   pull_request:

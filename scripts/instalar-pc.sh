@@ -47,6 +47,7 @@ if [[ -n "$root" && -f "$root/assets/icono/atalaya.svg" ]]; then
 else
   mkdir -p "$(dirname "$icon")"
   curl -fsSL -o "$icon" "https://raw.githubusercontent.com/$REPO/main/assets/icono/atalaya.svg"
+  chmod 644 "$icon"
 fi
 
 # StartupWMClass es el app_id de la ventana (main.rs): así Hyprland y el
