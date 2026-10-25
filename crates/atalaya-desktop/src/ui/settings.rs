@@ -20,7 +20,9 @@ use crate::palette::Palette;
 use crate::settings::{FONT_SIZES, FontSize, Settings};
 use crate::ui::Connection;
 use crate::ui::feeds::capitalize;
-use crate::ui::widgets::bar;
+use crate::ui::updates::{UpdateStatus, Updates, settings_text};
+use crate::ui::widgets::{bar, pill};
+use crate::update::CURRENT;
 
 type SizeList = Vec<SharedString>;
 
@@ -36,6 +38,7 @@ pub struct SettingsScreen {
     url: Entity<InputState>,
     key: Entity<InputState>,
     font_size: Entity<SelectState<SizeList>>,
+    updates: Entity<Updates>,
     probe: Probe,
     /// Resultado de la última escritura: `Ok` con un aviso o `Err`.
     notice: Option<Result<String, String>>,
@@ -48,7 +51,7 @@ fn size_label(size: u32) -> SharedString {
 }
 
 impl SettingsScreen {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>, updates: Entity<Updates>) -> Self {
         let (saved, notice) = match Settings::read() {
             Ok(s) => (s, None),
             Err(error) => (Settings::default(), Some(Err(error))),
@@ -69,26 +72,28 @@ impl SettingsScreen {
             .position(|s| *s == saved.font_size)
             .map(gpui_component::IndexPath::new);
         let font_size = cx.new(|cx| SelectState::new(sizes, selected, window, cx));
-        let subscriptions =
-            vec![
-                cx.subscribe(&font_size, |this, _, event: &SelectEvent<SizeList>, cx| {
-                    let SelectEvent::Confirm(Some(label)) = event else {
-                        return;
-                    };
-                    if let Some(size) = FONT_SIZES
-                        .iter()
-                        .copied()
-                        .find(|s| size_label(*s) == *label)
-                    {
-                        this.set_font_size(size, cx);
-                    }
-                }),
-            ];
+        let subscriptions = vec![
+            cx.subscribe(&font_size, |this, _, event: &SelectEvent<SizeList>, cx| {
+                let SelectEvent::Confirm(Some(label)) = event else {
+                    return;
+                };
+                if let Some(size) = FONT_SIZES
+                    .iter()
+                    .copied()
+                    .find(|s| size_label(*s) == *label)
+                {
+                    this.set_font_size(size, cx);
+                }
+            }),
+            // La sección «Versión» se repinta cuando cambia la actualización.
+            cx.observe(&updates, |_, _, cx| cx.notify()),
+        ];
         Self {
             saved,
             url,
             key,
             font_size,
+            updates,
             probe: Probe::Idle,
             notice,
             _probe: Task::ready(()),
@@ -218,24 +223,6 @@ fn field(
         .child(div().flex_none().child(control))
 }
 
-/// Botón con borde redondo (`.pill-btn`).
-fn pill(id: &'static str, label: &'static str, p: &Palette) -> gpui::Stateful<gpui::Div> {
-    let hover = p.surface;
-    div()
-        .id(id)
-        .flex_none()
-        .cursor_pointer()
-        .text_size(px(13.))
-        .font_weight(FontWeight::MEDIUM)
-        .border_1()
-        .border_color(p.text)
-        .rounded(px(15.))
-        .px(px(12.))
-        .py(px(5.))
-        .hover(move |s| s.bg(hover))
-        .child(label)
-}
-
 impl Render for SettingsScreen {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = Palette::of(window);
@@ -248,6 +235,27 @@ impl Render for SettingsScreen {
                 d.child(div().flex_none().size(px(7.)).rounded_full().bg(p.text2))
             })
             .child(div().min_w_0().child(self.status_text()))
+            .into_any_element();
+        let updates = self.updates.read(cx);
+        let update_action = match updates.status() {
+            UpdateStatus::Available(_) => Some(
+                pill("update-install", "Actualizar", &p)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.updates.update(cx, |updates, cx| updates.install(cx));
+                    }))
+                    .into_any_element(),
+            ),
+            UpdateStatus::Installed(_) => Some(
+                pill("update-restart", "Reiniciar", &p)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.updates.update(cx, |updates, cx| updates.restart(cx));
+                    }))
+                    .into_any_element(),
+            ),
+            _ => None,
+        };
+        let update_note = div()
+            .child(SharedString::from(settings_text(updates.status())))
             .into_any_element();
         let notice = self.notice.as_ref().map(|n| {
             let (text, color) = match n {
@@ -323,6 +331,25 @@ impl Render for SettingsScreen {
                                 div()
                                     .w(px(110.))
                                     .child(Select::new(&self.font_size).small()),
+                                &p,
+                            ))
+                            .child(heading("Versión", &p))
+                            .child(field("Versión instalada", None, CURRENT, &p))
+                            .child(field(
+                                "Actualizaciones",
+                                Some(update_note),
+                                div()
+                                    .flex()
+                                    .gap(px(8.))
+                                    .child(
+                                        pill("check-updates", "Buscar actualizaciones", &p)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.updates.update(cx, |updates, cx| {
+                                                    updates.check_now(cx)
+                                                });
+                                            })),
+                                    )
+                                    .children(update_action),
                                 &p,
                             )),
                     ),

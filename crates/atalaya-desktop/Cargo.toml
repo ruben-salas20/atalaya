@@ -18,6 +18,8 @@ gpui-component = "=0.8.0"
 gpui-kit-assets = "=0.8.0"
 # Sin estas dos funciones GPUI no abre ventanas: arranca sin pantalla.
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.9", features = ["wayland", "x11"] }
+# Huella SHA-256 de la actualización (ADR 0012). Versión fija, como GPUI.
+sha2 = "=0.11.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "query", "rustls"] }
 serde.workspace = true
 serde_json.workspace = true

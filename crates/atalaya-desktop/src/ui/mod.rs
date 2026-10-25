@@ -11,6 +11,7 @@
 //! | `feeds.rs` | Pantalla 5: gestión de feeds | 5.4 |
 //! | `papers/` | Pantalla 4: buscar, abrir y guardar papers | 5.3 |
 //! | `settings.rs` | Pantalla 3: ajustes | 5.4 |
+//! | `updates.rs` | Aviso de versión nueva y sección «Versión» de los ajustes | #54 |
 //! | `widgets.rs`, `format.rs` | Piezas comunes: iconos, botones, horas, idioma | todos |
 
 pub mod app;
@@ -22,6 +23,7 @@ pub mod papers;
 pub mod reader;
 pub mod settings;
 pub mod sidebar;
+pub mod updates;
 pub mod widgets;
 
 use std::sync::Arc;
