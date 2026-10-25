@@ -13,7 +13,7 @@ Cada sesión trabaja en **una issue**. Quien abre la sesión es el **orquestador
 3. **Haz tus pasos.** Haz commit de cada uno en `issue-N`. Hecho cuando cada paso tuyo cumple lo que pide la issue, comprobado por ti.
 4. **Lanza los subagentes.** Antes, haz commit y anota su hash corto (`git rev-parse --short HEAD`): el worktree nace desde `main`, no desde tu rama, y el subagente debe moverse a ese commit. Lanza cada uno con la herramienta de agentes y aislamiento `worktree`, con este prompt: «Lee `<ruta absoluta del repo>/docs/subagente.md` y síguelo. Tu tarea: issue #N, <la parte concreta y su "hecho cuando">. Debes partir del commit <hash>: si `git log -1 --oneline` muestra otro y tu rama no tiene commits propios, haz `git reset --hard <hash>`.», más los datos que Rubén dio en esta sesión. Lanza a la vez solo partes que no toquen los mismos archivos. Hecho cuando cada subagente ha devuelto su informe.
 5. **Comprueba y fusiona.** Por cada informe: fusiona su rama en `issue-N` con `git merge --no-ff`, resuelve los conflictos, y repite tú las pruebas que cita y las de «Falta comprobar». Un subagente informa igual de seguro cuando acierta que cuando se equivoca: la casilla de la issue se marca solo con tu prueba. Lleva a Rubén sus preguntas. Hecho cuando cada parte está marcada y comprobada por ti.
-6. **Cierra.** Sube `issue-N` y abre el PR con la plantilla de abajo; la línea `Closes #N` cierra la issue al fusionar. Cada cosa nueva que quede pendiente, idea o duda se abre como issue propia, con su origen. Si el PR solo cambia documentación, fusiónalo tú. Si cambia código, lo fusiona Rubén. Tras la fusión, borra `issue-N` en local y en `origin`, y los worktrees de sus subagentes. Dile a Rubén qué se hizo y que abra una sesión nueva. Hecho cuando el PR está fusionado, o abierto y con su enlace dado a Rubén.
+6. **Cierra.** Sube `issue-N` y abre el PR con la plantilla de abajo; la línea `Closes #N` cierra la issue al fusionar. Cada cosa nueva que quede pendiente, idea o duda se abre como issue propia, con su origen. Fusiónalo tú cuando cada parte esté comprobada por ti; si cambia algo que se nota en las apps, publica después una versión (ADR 0012). Pregunta antes a Rubén solo si el PR trae una decisión importante o difícil que él no haya tomado. Tras la fusión, borra `issue-N` en local y en `origin`, y los worktrees de sus subagentes. Dile a Rubén qué se hizo y que abra una sesión nueva. Hecho cuando el PR está fusionado, o abierto y con su enlace dado a Rubén si espera su decisión.
 
 Si la sesión se va a cortar antes, deja un comentario en la issue que empiece por «A medias:» y diga qué falta, haz commit y sube `issue-N`: la siguiente sesión sigue desde esa rama.
 
@@ -27,7 +27,7 @@ Las issues con la etiqueta `investigación` terminan en una propuesta para Rubé
 
 Cada issue va en su sesión y su rama. Para no chocar:
 
-- **Servicio y contrato:** si tu issue necesita cambiar `crates/atalaya-api` o `crates/atalaya-server` y otra sesión trabaja en una app, haz ese cambio primero, en una rama `issue-N-servicio` y un PR propio a `main`. Lo fusiona Rubén; después lo despliegas tú. La otra sesión lo recoge con `git merge main` en su rama.
+- **Servicio y contrato:** si tu issue necesita cambiar `crates/atalaya-api` o `crates/atalaya-server` y otra sesión trabaja en una app, haz ese cambio primero, en una rama `issue-N-servicio` y un PR propio a `main`. Lo fusionas tú; después se despliega. La otra sesión lo recoge con `git merge main` en su rama.
 - **`ai-lab`, la GPU y el móvil:** solo una sesión a la vez. Si dudas, pregunta a Rubén.
 
 ### Qué hace cada uno
@@ -97,7 +97,8 @@ Plantilla de un ADR nuevo, en `docs/adr/NNNN-titulo-en-minusculas.md`, con el n�
 
 - **Idioma:** nombres del código en inglés. Comentarios, documentos, mensajes a Rubén y commits en español claro, según la norma UNE-ISO 24495-1: lo importante primero, frases cortas y cada término técnico explicado la primera vez.
 - **Commits:** uno por paso terminado, con el número de la issue: `#21: repite cada hora la revisión de pendientes`.
-- **Ramas:** el orquestador sube solo `issue-N` (y `issue-N-servicio`). Nunca hace `push` a `main`. Fusiona el PR solo si es de documentación.
+- **Ramas:** el orquestador sube solo `issue-N` (y `issue-N-servicio`) y las etiquetas de versión `vX.Y.Z`. Nunca hace `push` a `main`: los cambios entran por PR.
+- **Repo público** (ADR 0012): todo lo que se sube se ve, también la historia. Nunca entran secretos, datos personales de Rubén ni textos ajenos completos. Antes de cada `push`, `gitleaks git` sobre la rama.
 - **`sudo`:** pide contraseña y no puedes escribirla. Dale a Rubén el comando para su terminal y comprueba después que quedó.
 
 ## ai-lab
