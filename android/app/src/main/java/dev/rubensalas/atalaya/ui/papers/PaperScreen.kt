@@ -236,14 +236,22 @@ private fun PaperBody(paper: Paper, state: PaperUiState, onSave: () -> Unit, onR
                 )
             }
         }
-        itemsIndexed(state.paragraphs, key = { i, _ -> "${state.showing}-$i" }) { _, text ->
-            Text(
-                text,
-                fontSize = 17.sp,
-                lineHeight = 27.sp,
-                color = if (muted) c.text3 else c.text,
-                modifier = Modifier.padding(bottom = 14.dp),
-            )
+        // Con HTML del servicio (hay fórmulas), el resumen se pinta como el paper completo; si no, el texto plano.
+        val blocks = state.showingAbstractBlocks
+        if (blocks != null) {
+            itemsIndexed(blocks, key = { i, _ -> "${state.showing}-block-$i" }) { _, block ->
+                ArticleBlock(block, muted = muted)
+            }
+        } else {
+            itemsIndexed(state.paragraphs, key = { i, _ -> "${state.showing}-$i" }) { _, text ->
+                Text(
+                    text,
+                    fontSize = 17.sp,
+                    lineHeight = 27.sp,
+                    color = if (muted) c.text3 else c.text,
+                    modifier = Modifier.padding(bottom = 14.dp),
+                )
+            }
         }
         item(key = "actions") {
             FlowRow(

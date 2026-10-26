@@ -161,6 +161,39 @@ class AtalayaClientTest {
     }
 
     @Test
+    fun paperReadsAbstractHtmlWhenItHasFormulas() = runTest {
+        server.enqueue(
+            MockResponse(
+                body = """{"arxiv_id":"2610.08812","title":"Destilar","original_title":"Distilling","title_translated":true,
+                "authors":[],"published_at":"2026-10-21T00:00:00Z","category":"cs.CL","saved_entry_id":null,
+                "abstract_text":"Sea x.","translation":"done","translated_abstract":"Sea x.",
+                "abstract_html":"<p>Sea <img class=\"atalaya-formula\" src=\"/formulas/2610.08812/r1.svg\" alt=\"x\"></p>",
+                "translated_abstract_html":"<p>Sea <img class=\"atalaya-formula\" src=\"/formulas/2610.08812/r1.svg\" alt=\"x\"></p>",
+                "abs_url":"https://arxiv.org/abs/2610.08812","pdf_url":"https://arxiv.org/pdf/2610.08812"}""",
+            ),
+        )
+        val paper = client.paper("2610.08812")
+        assertEquals("<p>Sea <img class=\"atalaya-formula\" src=\"/formulas/2610.08812/r1.svg\" alt=\"x\"></p>", paper.abstractHtml)
+        assertEquals(paper.abstractHtml, paper.translatedAbstractHtml)
+    }
+
+    @Test
+    fun paperWithoutAbstractHtmlKeepsPlainText() = runTest {
+        server.enqueue(
+            MockResponse(
+                body = """{"arxiv_id":"2610.08812","title":"Distilling","original_title":"Distilling","title_translated":false,
+                "authors":[],"published_at":"2026-10-21T00:00:00Z","category":"cs.CL","saved_entry_id":null,
+                "abstract_text":"First.\n\nSecond.","translation":"not_needed",
+                "abs_url":"https://arxiv.org/abs/2610.08812","pdf_url":"https://arxiv.org/pdf/2610.08812"}""",
+            ),
+        )
+        val paper = client.paper("2610.08812")
+        assertNull(paper.abstractHtml)
+        assertNull(paper.translatedAbstractHtml)
+        assertEquals("First.\n\nSecond.", paper.abstractText)
+    }
+
+    @Test
     fun fullPaperReadsStateAndProgress() = runTest {
         server.enqueue(MockResponse(body = """{"state":"pending","html":"<p>Hola</p>","progress":{"done":2,"total":9}}"""))
         val full = client.fullPaper("2610.31646")

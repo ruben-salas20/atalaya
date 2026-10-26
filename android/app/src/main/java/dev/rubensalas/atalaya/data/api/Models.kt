@@ -308,6 +308,14 @@ data class Paper(
     val translation: TranslationState,
     /** Resumen en español, con los mismos párrafos. Solo con [TranslationState.Done]. */
     @SerialName("translated_abstract") val translatedAbstract: String? = null,
+    /**
+     * El resumen original en HTML, solo si tiene fórmulas (#80): un `<p>` por
+     * párrafo y las fórmulas como en [FullPaper.html]. Sin fórmulas es null y se
+     * usa [abstractText].
+     */
+    @SerialName("abstract_html") val abstractHtml: String? = null,
+    /** Lo mismo para [translatedAbstract]. Solo con [TranslationState.Done]. */
+    @SerialName("translated_abstract_html") val translatedAbstractHtml: String? = null,
     /** `https://arxiv.org/abs/2610.08812`. */
     @SerialName("abs_url") val absUrl: String,
     /** `https://arxiv.org/pdf/2610.08812`. */
