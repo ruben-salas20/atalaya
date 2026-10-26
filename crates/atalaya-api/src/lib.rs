@@ -203,9 +203,21 @@ pub struct Entry {
     /// el artículo completo a Miniflux (L7).
     pub content: String,
     pub translation: TranslationState,
-    /// HTML en español, con los mismos enlaces, listas e imágenes (T5). Solo
-    /// con `translation: Done`.
+    /// HTML en español, con los mismos enlaces, listas e imágenes (T5). Con
+    /// `translation: Done`, entero. Con `Pending`, lo traducido hasta ahora y
+    /// el resto en el original, cada párrafo pendiente dentro de
+    /// `<span class="atalaya-pendiente">` (ADR 0015).
     pub translated_content: Option<String>,
+    /// Con `Pending`, cuántos párrafos van traducidos (ADR 0015).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<Progress>,
+}
+
+/// Avance de una traducción en curso: `done` de `total` párrafos.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Progress {
+    pub done: u32,
+    pub total: u32,
 }
 
 /// `PATCH /api/entries/{id}`. Los campos que faltan no cambian.
@@ -470,9 +482,11 @@ mod tests {
             content: "<p>Hello</p>".into(),
             translation: TranslationState::Pending,
             translated_content: None,
+            progress: Some(Progress { done: 2, total: 5 }),
         };
         let json = serde_json::to_value(&entry).unwrap();
         assert_eq!(json["id"], 1);
+        assert_eq!(json["progress"]["done"], 2);
         assert_eq!(json["translation"], "pending");
         assert_eq!(json["published_at"], "1970-01-01T00:00:00Z");
         assert_eq!(serde_json::from_value::<Entry>(json).unwrap(), entry);

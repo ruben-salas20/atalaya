@@ -141,7 +141,7 @@ async fn open(
         id.map_err(|e| invalid("id no válido", crate::error::detail_es(&e.body_text())))?;
     let entry = state.miniflux.entry(id).await?;
     let title = title_of(&state, id).await;
-    let (translation, translated_content) = state.translations.content(id).await;
+    let translation = state.translations.content(id).await;
     // Si el feed solo trae un resumen, el artículo completo (L7).
     let content = state
         .translations
@@ -152,8 +152,9 @@ async fn open(
         summary: summary(&entry, title.as_ref()),
         author: Some(entry.author).filter(|a| !a.trim().is_empty()),
         content,
-        translation,
-        translated_content,
+        translation: translation.translation,
+        translated_content: translation.html,
+        progress: translation.progress,
     }))
 }
 

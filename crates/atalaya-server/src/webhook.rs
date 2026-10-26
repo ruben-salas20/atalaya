@@ -78,7 +78,7 @@ async fn miniflux(
         let translations = state.translations.clone();
         tokio::spawn(async move {
             for id in saved {
-                let (translation, _) = translations.content(id).await;
+                let translation = translations.content(id).await.translation;
                 tracing::debug!(entry = id, ?translation, "webhook save_entry");
             }
         });

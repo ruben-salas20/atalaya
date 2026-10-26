@@ -8,7 +8,12 @@ use std::{collections::HashMap, sync::Arc};
 use atalaya_api::{Id, TranslationState};
 
 use crate::{
-    content::InProgress, llama::Llama, miniflux::Miniflux, store, store::Store, titles::Queue,
+    content::{ContentState, InProgress},
+    llama::Llama,
+    miniflux::Miniflux,
+    store,
+    store::Store,
+    titles::Queue,
 };
 
 /// Lo que se sabe del título de un artículo.
@@ -84,12 +89,16 @@ impl Translations {
     /// marcha sin esperarla. Se llama al abrir y al guardar. Paso 2.4.
     ///
     /// Si no se puede saber (Miniflux o la base fallan), responde `Failed`.
-    pub async fn content(&self, entry_id: Id) -> (TranslationState, Option<String>) {
+    pub async fn content(&self, entry_id: Id) -> ContentState {
         match self.content_state(entry_id).await {
             Ok(state) => state,
             Err(e) => {
                 tracing::error!(entry = entry_id, "estado de la traducción del texto: {e}");
-                (TranslationState::Failed, None)
+                ContentState {
+                    translation: TranslationState::Failed,
+                    html: None,
+                    progress: None,
+                }
             }
         }
     }
