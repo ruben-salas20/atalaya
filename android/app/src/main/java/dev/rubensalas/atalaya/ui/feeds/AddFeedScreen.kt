@@ -1,5 +1,6 @@
 package dev.rubensalas.atalaya.ui.feeds
 
+import android.widget.Toast
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -37,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -57,7 +59,18 @@ fun AddFeedScreen(container: AppContainer, onDone: () -> Unit) {
     val focus = LocalFocusManager.current
     var newFolder by remember { mutableStateOf(false) }
 
-    LaunchedEffect(state.done) { if (state.done) onDone() }
+    val context = LocalContext.current
+    LaunchedEffect(state.done) {
+        if (!state.done) return@LaunchedEffect
+        if (state.slow) {
+            Toast.makeText(
+                context,
+                "El feed se está creando: Miniflux descarga sus artículos. Aparecerá en unos minutos.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+        onDone()
+    }
 
     Scaffold(
         topBar = {

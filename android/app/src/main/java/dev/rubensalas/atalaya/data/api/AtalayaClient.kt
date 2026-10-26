@@ -13,6 +13,7 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.util.concurrent.TimeUnit
 
 /** Dirección del servicio y clave, tal como están en los ajustes. */
@@ -31,7 +32,14 @@ class ApiException(val status: Int?, message: String, cause: Throwable? = null) 
 class AtalayaClient(
     private val config: suspend () -> ServerConfig,
     private val http: OkHttpClient = defaultHttpClient(),
+    /** Espera máxima al crear un feed (#48). Las pruebas la acortan. */
+    private val addFeedTimeoutSeconds: Long = 120,
 ) : PapersApi {
+    /** Para las peticiones que pueden tardar minutos, como crear un feed. */
+    private val slowHttp: OkHttpClient by lazy {
+        http.newBuilder().readTimeout(addFeedTimeoutSeconds, TimeUnit.SECONDS).build()
+    }
+
     val json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
@@ -68,7 +76,18 @@ class AtalayaClient(
         send("POST", "api/feeds/discover", body(DiscoverRequest(url)))
 
     suspend fun feeds(): List<Feed> = get("api/feeds")
-    suspend fun addFeed(feed: NewFeed): Feed = send("POST", "api/feeds", body(feed))
+    /**
+     * Con «artículo completo», Miniflux descarga cada artículo antes de responder y
+     * puede tardar minutos (#48). Se espera hasta dos minutos; si no llega la
+     * respuesta, devuelve null: el servicio termina de crear el feed igualmente.
+     */
+    suspend fun addFeed(feed: NewFeed): Feed? =
+        try {
+            decode<Feed>(execute("POST", "api/feeds", body(feed), slowHttp) {})
+        } catch (e: ApiException) {
+            // OkHttp avisa de que se agotó la espera con un InterruptedIOException.
+            if (e.cause is InterruptedIOException) null else throw e
+        }
     suspend fun updateFeed(id: Id, update: FeedUpdate): Feed = send("PATCH", "api/feeds/$id", body(update))
     suspend fun deleteFeed(id: Id) = sendNoContent("DELETE", "api/feeds/$id")
 
@@ -107,7 +126,7 @@ class AtalayaClient(
         json.encodeToString(value).toRequestBody(JSON)
 
     private suspend inline fun <reified T> get(path: String, noinline query: HttpUrl.Builder.() -> Unit = {}): T =
-        decode(execute("GET", path, null, query))
+        decode(execute("GET", path, null, query = query))
 
     private suspend inline fun <reified T> send(method: String, path: String, body: RequestBody): T =
         decode(execute(method, path, body) {})
@@ -127,6 +146,7 @@ class AtalayaClient(
         method: String,
         path: String,
         body: RequestBody?,
+        client: OkHttpClient = http,
         query: HttpUrl.Builder.() -> Unit,
     ): String {
         val cfg = config()
@@ -140,7 +160,7 @@ class AtalayaClient(
             .build()
         return withContext(Dispatchers.IO) {
             try {
-                http.newCall(request).execute().use { response ->
+                client.newCall(request).execute().use { response ->
                     val text = response.body.string()
                     if (!response.isSuccessful) {
                         val message = runCatching { json.decodeFromString<ApiError>(text).error }.getOrNull()

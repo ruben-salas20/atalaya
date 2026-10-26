@@ -428,7 +428,7 @@ dependencies = [
 
 [[package]]
 name = "atalaya-api"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "chrono",
  "serde",
@@ -437,7 +437,7 @@ dependencies = [
 
 [[package]]
 name = "atalaya-desktop"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "atalaya-api",
  "chrono",
@@ -455,7 +455,7 @@ dependencies = [
 
 [[package]]
 name = "atalaya-server"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "atalaya-api",
  "axum",
