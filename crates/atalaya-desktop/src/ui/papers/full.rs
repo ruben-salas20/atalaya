@@ -69,9 +69,13 @@ pub fn parts(html: &str, base: &str, font_px: f32) -> Vec<Part> {
             rest = after;
         } else {
             let alt = attr(&attrs, "alt").unwrap_or_default();
+            // El `<img>` va dentro de un `<span>`: el visor de gpui-base corta
+            // el párrafo en cada `<img>` que es hijo directo de un bloque
+            // (un `<p>`), pero deja en línea el que va dentro de un elemento
+            // en línea.
             text.push_str(&format!(
-                "<img class=\"atalaya-formula\" src=\"{url}\" alt=\"{alt}\" \
-                 style=\"width: {width:.1}px; height: {height:.1}px\">"
+                "<span><img class=\"atalaya-formula\" src=\"{url}\" alt=\"{alt}\" \
+                 style=\"width: {width:.1}px; height: {height:.1}px\"></span>"
             ));
             rest = &rest[end..];
         }
@@ -243,9 +247,9 @@ mod tests {
         assert_eq!(
             parts,
             [Part::Text(
-                "<p>Si <img class=\"atalaya-formula\" \
+                "<p>Si <span><img class=\"atalaya-formula\" \
                  src=\"http://ai-lab:8080/formulas/2610.31646v1/3.svg\" alt=\"x&lt;y\" \
-                 style=\"width: 43.4px; height: 16.0px\"></p>"
+                 style=\"width: 43.4px; height: 16.0px\"></span></p>"
                     .to_owned()
             )]
         );
@@ -353,6 +357,25 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("width: 8.0px; height: 8.0px"), "{text}");
+    }
+
+    #[test]
+    fn inline_formula_is_wrapped_so_the_paragraph_is_not_cut() {
+        // Un `<img>` suelto dentro de un `<p>` lo parte en tres bloques en
+        // gpui-base; dentro de un `<span>`, sigue en la línea.
+        let html = format!(
+            "<p>mediante un índice de {} bits</p>",
+            inline("/formulas/a/1.svg", "")
+        );
+        let parts = parts(&html, BASE, 16.);
+        let [Part::Text(text)] = parts.as_slice() else {
+            panic!("una sola parte: {parts:?}");
+        };
+        assert!(
+            text.contains("<span><img class=\"atalaya-formula\""),
+            "{text}"
+        );
+        assert!(text.contains("</span> bits</p>"), "{text}");
     }
 
     #[test]
