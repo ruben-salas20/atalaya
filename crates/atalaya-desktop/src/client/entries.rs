@@ -1,9 +1,11 @@
 //! Rutas de lectura: menú lateral, lista, abrir un artículo y marcarlo.
-
 //!
 //! El menú, las listas y los artículos se guardan en disco al llegar y, sin
-//! red, salen de ahí (L8).
+//! red, salen de ahí (L8). Encima de esa copia se aplican los cambios que
+//! esperan en la cola, para que la lista y las cifras muestren lo último
+//! que pidió el usuario.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::PoisonError;
 use std::sync::atomic::Ordering;
 
@@ -39,16 +41,28 @@ fn search_text(query: &EntryQuery) -> Option<String> {
 }
 
 impl ApiClient {
-    /// `GET /api/sidebar`.
+    /// `GET /api/sidebar`. Sin red, suma o resta los cambios de la cola.
     pub fn sidebar(&self) -> Result<Sidebar> {
-        self.get_cached("sidebar", "/api/sidebar", &(), |_| true)
+        self.get_cached(
+            "sidebar",
+            "/api/sidebar",
+            &(),
+            |_| true,
+            |sidebar| self.with_queued_counts(sidebar),
+        )
     }
 
-    /// `GET /api/entries`. Con `q`, busca en el servicio; sin red, filtra
-    /// las listas guardadas de esta misma vista.
+    /// `GET /api/entries`. Con `q`, busca en el servicio; sin red, busca en
+    /// la copia. Sin red, la lista se arma con los cambios de la cola.
     pub fn entries(&self, query: &EntryQuery) -> Result<EntryPage> {
         let Some(needle) = search_text(query) else {
-            return self.get_cached(&list_key(query), "/api/entries", query, |_| true);
+            return self.get_cached(
+                &list_key(query),
+                "/api/entries",
+                query,
+                |_| true,
+                |page| self.with_queued_page(query, page),
+            );
         };
         match read_json(
             self.request(Method::GET, "/api/entries")
@@ -66,35 +80,30 @@ impl ApiClient {
         }
     }
 
-    /// Busca `needle` en las páginas guardadas de la vista de `query`, como
-    /// hace el servicio. `None` si no hay ninguna página guardada.
+    /// Busca `needle` en la copia de la misma carpeta, como hace el
+    /// servicio, con los cambios de la cola aplicados. `None` si la vista no
+    /// tiene ninguna página guardada.
     fn cached_search(&self, query: &EntryQuery, needle: &str) -> Option<EntryPage> {
         let cache = self.cache.as_ref()?;
-        let mut found: Vec<EntrySummary> = Vec::new();
-        let mut offset = 0;
-        let mut any = false;
-        while let Some(page) = cache.load::<EntryPage>(&list_key(&EntryQuery {
-            offset: Some(offset),
+        cache.load::<EntryPage>(&list_key(&EntryQuery {
+            offset: Some(0),
+            q: None,
             ..query.clone()
-        })) {
-            any = true;
-            if page.entries.is_empty() {
-                break;
-            }
-            offset += page.entries.len() as u32;
-            found.extend(page.entries.into_iter().filter(|e| {
-                fold(&e.title).contains(needle) || fold(&e.original_title).contains(needle)
-            }));
-        }
-        if !any {
-            return None;
-        }
+        }))?;
+        let queue = self.queue();
+        let mut found: Vec<EntrySummary> = self
+            .copied_entries(query, Vec::new())
+            .iter()
+            .map(|entry| applied_by(entry, queue.get(&entry.id)))
+            .filter(|e| {
+                in_view(query.view, e)
+                    && (fold(&e.title).contains(needle) || fold(&e.original_title).contains(needle))
+            })
+            .collect();
+        newest_first(&mut found);
         let total = found.len() as u64;
-        let start = (query.offset.unwrap_or(0) as usize).min(found.len());
-        let limit = query.limit.unwrap_or(50).clamp(1, 200) as usize;
-        let entries = found.into_iter().skip(start).take(limit).collect();
         self.offline.store(true, Ordering::Relaxed);
-        Some(EntryPage { total, entries })
+        Some(page_of(found, total, query))
     }
 
     /// `GET /api/entries/{id}`. Pone en marcha la traducción si hace falta.
@@ -105,6 +114,11 @@ impl ApiClient {
             &format!("/api/entries/{id}"),
             &(),
             |e: &Entry| e.translation != TranslationState::Pending,
+            |mut entry: Entry| {
+                let queue = self.queue();
+                entry.summary = applied_by(&entry.summary, queue.get(&id));
+                entry
+            },
         )
     }
 
@@ -138,10 +152,23 @@ impl ApiClient {
         self.caching_starred.store(false, Ordering::Relaxed);
     }
 
-    /// Marca leído o guardado con `PATCH /api/entries/{id}`. Sin red, el
-    /// cambio se guarda en la cola y se responde con `current` ya cambiado;
+    /// Anota en la cola un cambio de leído o guardado. Va antes de
+    /// [`ApiClient::update_entry`], en el hilo de la interfaz y en el mismo
+    /// orden en que el usuario pide los cambios: así la cola los funde en
+    /// ese orden, y el envío manda siempre lo último pedido. Sin copia en
+    /// disco no hace nada.
+    pub fn queue_change(&self, current: &EntrySummary, update: &EntryUpdate) {
+        if let Some(pending) = &self.pending {
+            pending.merge(current, update);
+        }
+    }
+
+    /// Manda a `PATCH /api/entries/{id}` lo último pedido para el artículo,
+    /// que ya está anotado con [`ApiClient::queue_change`]. Sin red, el
+    /// cambio se queda en la cola y se responde con `current` ya cambiado;
     /// se manda en la próxima lectura con red. Un error del servicio sí
-    /// devuelve `Err`.
+    /// devuelve `Err`. Si el artículo ya no está en cola, otra tarea lo
+    /// mandó y aquí no se manda nada.
     pub fn update_entry(
         &self,
         current: &EntrySummary,
@@ -151,7 +178,10 @@ impl ApiClient {
         // Mientras se envía, nadie más manda la cola: así no se cruzan.
         let _turn = self.sending.lock().unwrap_or_else(PoisonError::into_inner);
         let sent = match &self.pending {
-            Some(pending) => pending.merge(id, update),
+            Some(pending) => match pending.latest(id) {
+                Some(sent) => sent,
+                None => return Ok(applied(current, update)),
+            },
             None => update.clone(),
         };
         let result = self.try_send_json(Method::PATCH, &format!("/api/entries/{id}"), &sent);
@@ -165,7 +195,7 @@ impl ApiClient {
                 if failure.network {
                     self.offline.store(true, Ordering::Relaxed);
                 }
-                Ok(applied(current, update))
+                Ok(applied(current, &sent))
             }
             Err(failure) => {
                 self.forget(id, &sent);
@@ -190,6 +220,106 @@ impl ApiClient {
         )?;
         Ok(())
     }
+
+    /// Los cambios que esperan a la red, por id de artículo.
+    fn queue(&self) -> HashMap<Id, EntryUpdate> {
+        self.pending
+            .as_ref()
+            .map(|pending| {
+                pending
+                    .all()
+                    .into_iter()
+                    .map(|(id, queued)| (id, queued.update))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// La página guardada con los cambios de la cola. Sin cambios, sale tal
+    /// cual. Con cambios, la vista se arma con los artículos de la copia de
+    /// la misma carpeta: se aplica la cola, se filtra por la vista y se
+    /// ordena del más nuevo al más viejo. El total suma o resta lo que los
+    /// cambios mueven dentro de la vista.
+    fn with_queued_page(&self, query: &EntryQuery, exact: EntryPage) -> EntryPage {
+        let queue = self.queue();
+        if queue.is_empty() {
+            return exact;
+        }
+        let mut delta: i64 = 0;
+        let mut shown = Vec::new();
+        for entry in self.copied_entries(query, exact.entries) {
+            let now = applied_by(&entry, queue.get(&entry.id));
+            delta += i64::from(in_view(query.view, &now)) - i64::from(in_view(query.view, &entry));
+            if in_view(query.view, &now) {
+                shown.push(now);
+            }
+        }
+        newest_first(&mut shown);
+        let total = shift(exact.total, delta);
+        page_of(shown, total, query)
+    }
+
+    /// El menú con los cambios de la cola: suma o resta los sin leer y los
+    /// guardados. Solo cuentan los cambios que guardaron cómo estaba el
+    /// artículo.
+    fn with_queued_counts(&self, mut sidebar: Sidebar) -> Sidebar {
+        let Some(pending) = &self.pending else {
+            return sidebar;
+        };
+        for (_, queued) in pending.all() {
+            let Some(before) = queued.before else {
+                continue;
+            };
+            let read = queued.update.read.unwrap_or(before.read);
+            let starred = queued.update.starred.unwrap_or(before.starred);
+            let unread = i64::from(!read) - i64::from(!before.read);
+            if unread != 0 {
+                sidebar.unread = shift(sidebar.unread, unread);
+                for category in &mut sidebar.categories {
+                    for feed in category.feeds.iter_mut().filter(|f| f.id == before.feed_id) {
+                        feed.unread = shift(feed.unread, unread);
+                        category.unread = shift(category.unread, unread);
+                    }
+                }
+            }
+            if starred != before.starred {
+                let delta = i64::from(starred) - i64::from(before.starred);
+                sidebar.starred = shift(sidebar.starred, delta);
+            }
+        }
+        sidebar
+    }
+
+    /// Los artículos de la copia de la misma carpeta (feed o categoría, y
+    /// tamaño de página) que `query`, de las tres vistas, sin repetir. `seed`
+    /// va primero. Cada vista se lee desde la primera página hasta la
+    /// primera que falte.
+    fn copied_entries(&self, query: &EntryQuery, seed: Vec<EntrySummary>) -> Vec<EntrySummary> {
+        let mut pages = vec![seed];
+        if let Some(cache) = &self.cache {
+            for view in [View::All, View::Unread, View::Starred] {
+                let mut offset = 0;
+                while let Some(page) = cache.load::<EntryPage>(&list_key(&EntryQuery {
+                    view,
+                    offset: Some(offset),
+                    q: None,
+                    ..query.clone()
+                })) {
+                    if page.entries.is_empty() {
+                        break;
+                    }
+                    offset += page.entries.len() as u32;
+                    pages.push(page.entries);
+                }
+            }
+        }
+        let mut seen = HashSet::new();
+        pages
+            .into_iter()
+            .flatten()
+            .filter(|entry| seen.insert(entry.id))
+            .collect()
+    }
 }
 
 /// `summary` con los cambios de `update`.
@@ -204,6 +334,47 @@ fn applied(summary: &EntrySummary, update: &EntryUpdate) -> EntrySummary {
     next
 }
 
+/// `summary` con los cambios de la cola, si los hay.
+fn applied_by(summary: &EntrySummary, queued: Option<&EntryUpdate>) -> EntrySummary {
+    match queued {
+        Some(update) => applied(summary, update),
+        None => summary.clone(),
+    }
+}
+
+/// Si el artículo sale en la vista (`Todos`, `Sin leer` o `Guardados`).
+fn in_view(view: View, entry: &EntrySummary) -> bool {
+    match view {
+        View::All => true,
+        View::Unread => !entry.read,
+        View::Starred => entry.starred,
+    }
+}
+
+/// Ordena del más nuevo al más viejo, como el servicio.
+fn newest_first(entries: &mut [EntrySummary]) {
+    entries.sort_by(|a, b| {
+        b.published_at
+            .cmp(&a.published_at)
+            .then_with(|| b.id.cmp(&a.id))
+    });
+}
+
+/// La página de `query` dentro de `found`, ya ordenada.
+fn page_of(found: Vec<EntrySummary>, total: u64, query: &EntryQuery) -> EntryPage {
+    let start = (query.offset.unwrap_or(0) as usize).min(found.len());
+    let limit = query.limit.unwrap_or(50).clamp(1, 200) as usize;
+    EntryPage {
+        total,
+        entries: found.into_iter().skip(start).take(limit).collect(),
+    }
+}
+
+/// `n` más `delta`, sin bajar de cero.
+fn shift(n: u64, delta: i64) -> u64 {
+    (n as i64 + delta).max(0) as u64
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::{Read, Write};
@@ -212,27 +383,14 @@ mod tests {
     use std::sync::atomic::AtomicBool;
     use std::time::Duration;
 
-    use atalaya_api::EntryUpdate;
+    use atalaya_api::{EntryUpdate, Sidebar, SidebarCategory, SidebarFeed};
 
     use super::*;
     use crate::client::pending::Pending;
-    use crate::client::pending::tests::TempDir;
+    use crate::client::pending::tests::{TempDir, article, updates};
 
     fn summary(id: Id) -> EntrySummary {
-        serde_json::from_value(serde_json::json!({
-            "id": id,
-            "feed_id": 1,
-            "feed_title": "Feed",
-            "title": "Título",
-            "original_title": "Title",
-            "title_translated": false,
-            "lang": "en",
-            "url": "https://example.com/a",
-            "published_at": "2026-01-01T00:00:00Z",
-            "read": false,
-            "starred": false,
-        }))
-        .expect("resumen de prueba mal formado")
+        article(id, 1, false, false)
     }
 
     /// Cliente cuyo servicio no escucha: cada petición falla por red.
@@ -262,37 +420,273 @@ mod tests {
         }
     }
 
+    /// Guarda en la copia una página de la vista de `query`.
+    fn seed_page(dir: &TempDir, query: &EntryQuery, entries: Vec<EntrySummary>, total: u64) {
+        dir.cache()
+            .store(&list_key(query), &EntryPage { total, entries });
+    }
+
+    /// Anota en la cola, como lo hace la interfaz antes de mandar.
+    fn queue(dir: &TempDir, current: &EntrySummary, update: EntryUpdate) {
+        Pending::new(dir.cache()).merge(current, &update);
+    }
+
+    fn read(value: bool) -> EntryUpdate {
+        EntryUpdate {
+            read: Some(value),
+            starred: None,
+        }
+    }
+
+    fn starred(value: bool) -> EntryUpdate {
+        EntryUpdate {
+            read: None,
+            starred: Some(value),
+        }
+    }
+
+    fn ids(page: &EntryPage) -> Vec<Id> {
+        page.entries.iter().map(|e| e.id).collect()
+    }
+
     #[test]
     fn offline_change_is_queued_and_applied() {
         let dir = TempDir::new();
         let client = offline_client(&dir);
-        let update = EntryUpdate {
-            read: Some(true),
-            starred: None,
-        };
+        let update = read(true);
 
+        client.queue_change(&summary(7), &update);
         let result = client
             .update_entry(&summary(7), &update)
             .expect("sin red debe responder Ok");
 
         assert!(result.read);
         assert!(client.is_offline());
-        assert_eq!(Pending::new(dir.cache()).all(), vec![(7, update)]);
+        assert_eq!(updates(&Pending::new(dir.cache())), vec![(7, update)]);
     }
 
     #[test]
     fn offline_send_keeps_the_queue() {
         let dir = TempDir::new();
         let client = offline_client(&dir);
-        let update = EntryUpdate {
-            read: None,
-            starred: Some(true),
-        };
-        Pending::new(dir.cache()).merge(4, &update);
+        let update = starred(true);
+        queue(&dir, &summary(4), starred(true));
 
         client.send_pending();
 
-        assert_eq!(Pending::new(dir.cache()).all(), vec![(4, update)]);
+        assert_eq!(updates(&Pending::new(dir.cache())), vec![(4, update)]);
+    }
+
+    #[test]
+    fn offline_unread_list_hides_what_was_read_offline() {
+        let dir = TempDir::new();
+        let unread = EntryQuery {
+            view: View::Unread,
+            ..Default::default()
+        };
+        seed_page(&dir, &unread, vec![summary(2), summary(1)], 2);
+        queue(&dir, &summary(1), read(true));
+
+        let page = offline_client(&dir)
+            .entries(&unread)
+            .expect("sin red debe salir de la copia");
+
+        assert_eq!(page.total, 1);
+        assert_eq!(ids(&page), vec![2]);
+    }
+
+    #[test]
+    fn offline_all_list_shows_the_queued_state_and_keeps_the_rows() {
+        let dir = TempDir::new();
+        seed_page(
+            &dir,
+            &EntryQuery::default(),
+            vec![summary(2), summary(1)],
+            2,
+        );
+        queue(&dir, &summary(1), read(true));
+        queue(&dir, &summary(2), starred(true));
+
+        let page = offline_client(&dir)
+            .entries(&EntryQuery::default())
+            .expect("sin red debe salir de la copia");
+
+        assert_eq!(page.total, 2);
+        assert_eq!(ids(&page), vec![2, 1]);
+        assert!(page.entries[0].starred && !page.entries[0].read);
+        assert!(page.entries[1].read);
+    }
+
+    #[test]
+    fn offline_starred_list_gets_queued_stars_from_the_copy() {
+        let dir = TempDir::new();
+        let starred_view = EntryQuery {
+            view: View::Starred,
+            ..Default::default()
+        };
+        seed_page(&dir, &starred_view, vec![article(3, 1, false, true)], 1);
+        seed_page(
+            &dir,
+            &EntryQuery::default(),
+            vec![article(3, 1, false, true), summary(2), summary(1)],
+            3,
+        );
+        queue(&dir, &summary(1), starred(true));
+
+        let page = offline_client(&dir)
+            .entries(&starred_view)
+            .expect("sin red debe salir de la copia");
+
+        assert_eq!(page.total, 2);
+        assert_eq!(ids(&page), vec![3, 1]);
+    }
+
+    #[test]
+    fn queued_changes_survive_a_restart() {
+        let dir = TempDir::new();
+        let starred_view = EntryQuery {
+            view: View::Starred,
+            ..Default::default()
+        };
+        seed_page(&dir, &starred_view, vec![article(3, 1, false, true)], 1);
+        seed_page(
+            &dir,
+            &EntryQuery::default(),
+            vec![article(3, 1, false, true), summary(1)],
+            2,
+        );
+        queue(&dir, &summary(1), starred(true));
+
+        let before_restart = offline_client(&dir)
+            .entries(&starred_view)
+            .expect("sin red debe salir de la copia");
+        // Una app nueva, sin nada en memoria, lee la misma copia y la cola.
+        let after_restart = offline_client(&dir)
+            .entries(&starred_view)
+            .expect("tras reiniciar, sin red, también");
+
+        assert_eq!(before_restart, after_restart);
+        assert_eq!(ids(&after_restart), vec![3, 1]);
+    }
+
+    #[test]
+    fn offline_sidebar_counts_include_the_queue() {
+        let dir = TempDir::new();
+        let copy = Sidebar {
+            total: 10,
+            unread: 4,
+            starred: 2,
+            categories: vec![SidebarCategory {
+                id: 1,
+                title: "Noticias".into(),
+                unread: 4,
+                feeds: vec![
+                    SidebarFeed {
+                        id: 5,
+                        title: "A".into(),
+                        unread: 3,
+                    },
+                    SidebarFeed {
+                        id: 6,
+                        title: "B".into(),
+                        unread: 1,
+                    },
+                ],
+            }],
+        };
+        dir.cache().store("sidebar", &copy);
+        // Del feed 5: un sin leer pasa a leído.
+        queue(&dir, &article(1, 5, false, false), read(true));
+        // Del feed 6: un leído pasa a guardado, sin tocar los sin leer.
+        queue(&dir, &article(2, 6, true, false), starred(true));
+
+        let sidebar = offline_client(&dir)
+            .sidebar()
+            .expect("sin red debe salir de la copia");
+
+        assert_eq!(sidebar.total, 10);
+        assert_eq!(sidebar.unread, 3);
+        assert_eq!(sidebar.starred, 3);
+        assert_eq!(sidebar.categories[0].unread, 3);
+        assert_eq!(sidebar.categories[0].feeds[0].unread, 2);
+        assert_eq!(sidebar.categories[0].feeds[1].unread, 1);
+    }
+
+    #[test]
+    fn offline_entry_shows_its_queued_state() {
+        let dir = TempDir::new();
+        let entry: Entry = serde_json::from_value(serde_json::json!({
+            "id": 7,
+            "feed_id": 1,
+            "feed_title": "Feed",
+            "title": "Título",
+            "original_title": "Title",
+            "title_translated": false,
+            "lang": "en",
+            "url": "https://example.com/a",
+            "published_at": "2026-01-07T00:00:00Z",
+            "read": false,
+            "starred": false,
+            "author": null,
+            "content": "",
+            "translation": "not_needed",
+            "translated_content": null,
+        }))
+        .expect("artículo de prueba mal formado");
+        dir.cache().store(&entry_key(7), &entry);
+        queue(&dir, &summary(7), read(true));
+
+        let copy = offline_client(&dir).entry(7).expect("sin red, de la copia");
+
+        assert!(copy.summary.read);
+    }
+
+    #[test]
+    fn stale_send_sends_the_latest_queued_state() {
+        let dir = TempDir::new();
+        let listener = TcpListener::bind("127.0.0.1:0").expect("no se pudo abrir el servidor");
+        let port = listener.local_addr().expect("puerto del servidor").port();
+        // Hace de servicio: responde una sola petición y devuelve lo que recibió.
+        let service = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("conexión de prueba");
+            let request = read_request(&mut stream);
+            let body = serde_json::to_string(&summary(7)).expect("cuerpo de prueba");
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("respuesta de prueba");
+            request
+        });
+        let client = client_at(&dir, port);
+
+        // Dos acciones seguidas: leído y luego sin leer. La tarea de la
+        // primera llega la última y debe mandar lo último pedido.
+        client.queue_change(&summary(7), &read(true));
+        client.queue_change(&summary(7), &read(false));
+        client
+            .update_entry(&summary(7), &read(true))
+            .expect("el servicio responde");
+
+        let request = service.join().expect("el servicio de prueba falló");
+        assert!(request.starts_with("PATCH /api/entries/7 "), "{request}");
+        assert!(request.contains(r#""read":false"#), "{request}");
+        assert!(Pending::new(dir.cache()).all().is_empty());
+    }
+
+    #[test]
+    fn already_sent_change_is_not_sent_again() {
+        let dir = TempDir::new();
+        let client = offline_client(&dir);
+
+        // Nada en cola: la tarea no toca la red.
+        client
+            .update_entry(&summary(7), &read(true))
+            .expect("sin nada en cola no hay error");
+
+        assert!(!client.is_offline());
     }
 
     /// Lee una petición HTTP completa y devuelve el texto entero.
@@ -341,16 +735,13 @@ mod tests {
                 .expect("respuesta de prueba");
         });
         let client = client_at(&dir, port);
-        let update = EntryUpdate {
-            read: Some(true),
-            starred: None,
-        };
-        Pending::new(dir.cache()).merge(7, &update);
+        let update = read(true);
+        queue(&dir, &summary(7), read(true));
 
         client.send_pending();
 
         service.join().expect("el servicio de prueba falló");
-        assert_eq!(Pending::new(dir.cache()).all(), vec![(7, update)]);
+        assert_eq!(updates(&Pending::new(dir.cache())), vec![(7, update)]);
     }
 
     #[test]
@@ -373,13 +764,7 @@ mod tests {
             request
         });
         let client = client_at(&dir, port);
-        Pending::new(dir.cache()).merge(
-            7,
-            &EntryUpdate {
-                read: Some(true),
-                starred: None,
-            },
-        );
+        queue(&dir, &summary(7), read(true));
 
         client.send_pending();
 

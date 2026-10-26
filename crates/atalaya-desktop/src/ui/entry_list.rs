@@ -262,6 +262,9 @@ impl EntryList {
                 return;
             }
         };
+        // Se anota en la cola ya, en el orden en que el usuario lo pide. La
+        // tarea de fondo solo manda lo último anotado.
+        client.queue_change(&before, &update);
         let mut after = before.clone();
         after.read = update.read.unwrap_or(after.read);
         after.starred = update.starred.unwrap_or(after.starred);

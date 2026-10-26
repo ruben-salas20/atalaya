@@ -162,6 +162,8 @@ impl Reader {
                 return;
             }
         };
+        // Se anota en la cola ya, en el orden en que el usuario lo pide.
+        client.queue_change(&before, &update);
         let mut after = before.clone();
         if let Some(read) = update.read {
             after.read = read;
