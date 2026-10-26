@@ -458,6 +458,44 @@ pub struct Paper {
     pub pdf_url: String,
 }
 
+/// Estado del paper completo traducido (P7, ADR 0010).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FullPaperState {
+    /// Nadie lo ha pedido todavía: la app muestra «Leer completo».
+    NotRequested,
+    /// arXiv no tiene versión HTML de este paper: queda el resumen y el PDF.
+    NotAvailable,
+    /// Se está traduciendo; `html` trae lo que ya hay (ADR 0015).
+    Pending,
+    /// `html` trae el paper entero en español.
+    Done,
+    /// Falló; pedirlo otra vez lo reintenta.
+    Failed,
+}
+
+/// `GET /api/papers/{arxiv_id}/full` (estado) y `POST` (lo pide; responde
+/// igual). P7, ADR 0010.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FullPaper {
+    pub state: FullPaperState,
+    /// Cuerpo del paper en HTML, sin bibliografía. Con `Pending`, lo
+    /// traducido hasta ahora y cada párrafo pendiente en el original dentro de
+    /// `<span class="atalaya-pendiente">`; con `Done`, todo en español.
+    ///
+    /// Cada fórmula es una imagen SVG del servicio, sin clave:
+    /// `<img class="atalaya-formula" src="/formulas/2610.31646v1/3.svg"
+    /// alt="LaTeX" style="vertical-align: -0.44ex; width: 5.43ex; height: 2ex">`.
+    /// Las fórmulas aparte llevan además la clase `atalaya-formula-bloque`.
+    /// El SVG pinta con `currentColor`: la app lo cambia por el color de su
+    /// texto. Si MathJax no pudo con una fórmula, va como
+    /// `<code class="atalaya-latex">LaTeX</code>`.
+    pub html: Option<String>,
+    /// Con `Pending`, cuántos trozos van traducidos.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<Progress>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
