@@ -67,7 +67,22 @@ data class LocalContent(
         url = row.url, publishedAt = Instant.ofEpochMilli(row.publishedAt), read = row.read,
         starred = row.starred, author = author, content = content, translation = translationState,
         translatedContent = translatedContent,
+        // La copia guardada no trae el id de arXiv: sale de la dirección (#90).
+        arxivId = arxivIdFromUrl(row.url),
     )
+}
+
+/**
+ * El id de arXiv sin versión de una dirección `arxiv.org/abs|pdf|html/…`, como
+ * `arxiv::id_from_url` del servicio. `null` si no es de arXiv.
+ */
+fun arxivIdFromUrl(url: String): String? {
+    val match = Regex("""^https?://(?:www\.|export\.)?arxiv\.org/(?:abs|pdf|html)/([^?#]+)""").find(url) ?: return null
+    val path = match.groupValues[1].trimEnd('/').removeSuffix(".pdf")
+    val id = path.replace(Regex("""v\d+$"""), "")
+    val new = Regex("""^\d{4}\.\d{4,5}$""")
+    val old = Regex("""^[a-z-]+(?:\.[A-Z]{2})?/\d{7}$""")
+    return id.takeIf { new.matches(it) || old.matches(it) }
 }
 
 /** El menú lateral tal como llegó del servicio, en JSON. Hay una sola fila. */

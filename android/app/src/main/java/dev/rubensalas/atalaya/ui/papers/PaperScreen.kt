@@ -2,7 +2,6 @@ package dev.rubensalas.atalaya.ui.papers
 
 import android.content.Intent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,17 +22,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -51,7 +47,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
@@ -66,15 +61,18 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.rubensalas.atalaya.AppContainer
-import dev.rubensalas.atalaya.data.api.FullPaperState
 import dev.rubensalas.atalaya.data.api.Paper
 import dev.rubensalas.atalaya.data.api.TranslationState
 import dev.rubensalas.atalaya.ui.article.ArticleBlock
 import dev.rubensalas.atalaya.ui.article.ArticleVersion
+import dev.rubensalas.atalaya.ui.article.FullTextAction
+import dev.rubensalas.atalaya.ui.article.FullTextState
+import dev.rubensalas.atalaya.ui.article.OutlineAction
+import dev.rubensalas.atalaya.ui.article.TopBarProgress
 import dev.rubensalas.atalaya.ui.article.TranslatingToast
 import dev.rubensalas.atalaya.ui.article.TranslationNote
-import dev.rubensalas.atalaya.ui.article.TranslationProgress
 import dev.rubensalas.atalaya.ui.article.VersionSelector
+import dev.rubensalas.atalaya.ui.article.fullTextSection
 import dev.rubensalas.atalaya.ui.theme.Atalaya
 
 /** Paper abierto desde la búsqueda (pantalla 8, P4). */
@@ -87,6 +85,7 @@ fun PaperScreen(container: AppContainer, arxivId: String, onBack: () -> Unit) {
         },
     )
     val state by vm.state.collectAsStateWithLifecycle()
+    val full by vm.full.collectAsStateWithLifecycle()
     val c = Atalaya.colors
     val snackbar = remember { SnackbarHostState() }
 
@@ -103,7 +102,7 @@ fun PaperScreen(container: AppContainer, arxivId: String, onBack: () -> Unit) {
     Scaffold(
         containerColor = c.bg,
         snackbarHost = { SnackbarHost(snackbar) },
-        topBar = { PaperTopBar(state, onBack, vm) },
+        topBar = { PaperTopBar(state, full, onBack, vm) },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             val paper = state.paper
@@ -119,7 +118,7 @@ fun PaperScreen(container: AppContainer, arxivId: String, onBack: () -> Unit) {
                 paper == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = c.text2)
                 }
-                else -> PaperBody(paper, state, onSave = vm::save, onReadFull = vm::readFull)
+                else -> PaperBody(paper, state, full, onSave = vm::save, onReadFull = vm::readFull)
             }
             if (state.translating) TranslatingToast(Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp))
         }
@@ -128,7 +127,7 @@ fun PaperScreen(container: AppContainer, arxivId: String, onBack: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PaperTopBar(state: PaperUiState, onBack: () -> Unit, vm: PaperViewModel) {
+private fun PaperTopBar(state: PaperUiState, full: FullTextState, onBack: () -> Unit, vm: PaperViewModel) {
     val c = Atalaya.colors
     val paper = state.paper
     Column(Modifier.background(c.bg)) {
@@ -143,17 +142,7 @@ private fun PaperTopBar(state: PaperUiState, onBack: () -> Unit, vm: PaperViewMo
             colors = TopAppBarDefaults.topAppBarColors(containerColor = c.bg),
         )
         // El avance del paper completo tiene prioridad: dice cuántos párrafos van (ADR 0015).
-        val fullProgress = state.fullProgress
-        when {
-            fullProgress != null -> TranslationProgress(fullProgress)
-            state.translating -> LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth().height(2.dp),
-                color = c.accent,
-                trackColor = c.surface2,
-                gapSize = 0.dp,
-            )
-            else -> HorizontalDivider(thickness = 1.dp, color = c.divider)
-        }
+        TopBarProgress(progress = full.progress, translating = state.translating)
     }
 }
 
@@ -190,7 +179,7 @@ private fun PaperActions(paper: Paper, state: PaperUiState, vm: PaperViewModel) 
 }
 
 @Composable
-private fun PaperBody(paper: Paper, state: PaperUiState, onSave: () -> Unit, onReadFull: () -> Unit) {
+private fun PaperBody(paper: Paper, state: PaperUiState, full: FullTextState, onSave: () -> Unit, onReadFull: () -> Unit) {
     val c = Atalaya.colors
     val uri = LocalUriHandler.current
     val muted = state.translating && state.showing == ArticleVersion.Original
@@ -262,45 +251,12 @@ private fun PaperBody(paper: Paper, state: PaperUiState, onSave: () -> Unit, onR
                 SaveButton(saved = state.saved, busy = state.saving, onClick = onSave)
                 OutlineAction("arXiv", Icons.AutoMirrored.Filled.OpenInNew) { uri.openUri(paper.absUrl) }
                 OutlineAction("PDF", Icons.Filled.PictureAsPdf) { uri.openUri(paper.pdfUrl) }
-                if (state.fullState == FullPaperState.NotRequested) {
-                    OutlineAction("Leer completo", Icons.AutoMirrored.Filled.MenuBook, onClick = onReadFull)
-                }
+                FullTextAction(full, onReadFull)
             }
         }
         // El paper completo va debajo del resumen, según el estado que dio el servicio (P7, ADR 0010).
-        when (state.fullState) {
-            FullPaperState.Pending, FullPaperState.Done -> {
-                item(key = "full-head") {
-                    Text(
-                        "TEXTO COMPLETO",
-                        fontSize = 12.sp,
-                        letterSpacing = 0.6.sp,
-                        color = c.text3,
-                        modifier = Modifier.padding(top = 28.dp, bottom = 14.dp),
-                    )
-                }
-                // La clave es la posición: al llegar más trozos, los que ya se leen no se recrean ni saltan.
-                itemsIndexed(state.fullBlocks, key = { i, _ -> "full-$i" }) { _, block ->
-                    ArticleBlock(block, muted = false)
-                }
-            }
-            FullPaperState.NotAvailable -> item(key = "full-missing") {
-                FullNote("arXiv no tiene una versión completa de este paper. Quedan el resumen y el PDF.", Modifier.padding(top = 24.dp))
-            }
-            FullPaperState.Failed -> item(key = "full-failed") {
-                Column(Modifier.padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    FullNote("No se pudo traducir el paper completo.")
-                    OutlinedButton(onClick = onReadFull) { Text("Reintentar") }
-                }
-            }
-            FullPaperState.NotRequested -> Unit
-        }
+        fullTextSection(full, onReadFull)
     }
-}
-
-@Composable
-private fun FullNote(text: String, modifier: Modifier = Modifier) {
-    Text(text, fontSize = 15.sp, lineHeight = 22.sp, color = Atalaya.colors.text2, modifier = modifier)
 }
 
 /** «Guardar», relleno. Una vez guardado queda como «Guardado» y no se puede volver a tocar. */
@@ -326,23 +282,5 @@ private fun SaveButton(saved: Boolean, busy: Boolean, onClick: () -> Unit) {
             modifier = Modifier.size(18.dp),
         )
         Text(if (saved) "Guardado" else "Guardar", fontSize = 14.5.sp, fontWeight = FontWeight.Medium, color = tint)
-    }
-}
-
-@Composable
-private fun OutlineAction(label: String, icon: ImageVector, onClick: () -> Unit) {
-    val c = Atalaya.colors
-    Row(
-        Modifier
-            .height(42.dp)
-            .border(1.dp, c.divider, RoundedCornerShape(21.dp))
-            .clip(RoundedCornerShape(21.dp))
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
-        Text(label, fontSize = 14.sp, color = c.text)
     }
 }

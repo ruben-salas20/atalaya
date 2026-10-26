@@ -78,9 +78,12 @@ import dev.rubensalas.atalaya.ui.theme.Atalaya
 fun ArticleScreen(container: AppContainer, id: Id, onBack: () -> Unit) {
     val vm: ArticleViewModel = viewModel(
         key = "article-$id",
-        factory = viewModelFactory { initializer { ArticleViewModel(id, container.list) } },
+        factory = viewModelFactory {
+            initializer { ArticleViewModel(id, container.list, container.papers, serviceUrl = { container.settings.current().serviceUrl }) }
+        },
     )
     val state by vm.state.collectAsStateWithLifecycle()
+    val full by vm.full.collectAsStateWithLifecycle()
     val c = Atalaya.colors
     val snackbar = remember { SnackbarHostState() }
     // Fuera de la rama del cuerpo: la posición de lectura sobrevive a cada versión nueva (ADR 0015).
@@ -99,7 +102,7 @@ fun ArticleScreen(container: AppContainer, id: Id, onBack: () -> Unit) {
     Scaffold(
         containerColor = c.bg,
         snackbarHost = { SnackbarHost(snackbar) },
-        topBar = { ArticleTopBar(state, onBack, vm) },
+        topBar = { ArticleTopBar(state, full, onBack, vm) },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             val entry = state.entry
@@ -115,7 +118,7 @@ fun ArticleScreen(container: AppContainer, id: Id, onBack: () -> Unit) {
                 entry == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = c.text2)
                 }
-                else -> ArticleBody(entry, state, listState)
+                else -> ArticleBody(entry, state, full, vm::readFull, listState)
             }
             // Con avance, la barra de arriba ya dice que se traduce: el aviso de abajo sobra.
             if (state.translating && state.progress == null) TranslatingToast(Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp))
@@ -125,7 +128,7 @@ fun ArticleScreen(container: AppContainer, id: Id, onBack: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ArticleTopBar(state: ArticleUiState, onBack: () -> Unit, vm: ArticleViewModel) {
+private fun ArticleTopBar(state: ArticleUiState, full: FullTextState, onBack: () -> Unit, vm: ArticleViewModel) {
     val c = Atalaya.colors
     val entry = state.entry
     Column(Modifier.background(c.bg)) {
@@ -140,18 +143,27 @@ private fun ArticleTopBar(state: ArticleUiState, onBack: () -> Unit, vm: Article
             colors = TopAppBarDefaults.topAppBarColors(containerColor = c.bg),
         )
         // Mientras se traduce, una barra fina ocupa el sitio de la línea (pantalla 4).
-        // Con el avance del servicio, la barra se llena y dice cuántos párrafos van.
-        val progress = state.progress
-        when {
-            progress != null -> TranslationProgress(progress)
-            state.translating -> LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth().height(2.dp),
-                color = c.accent,
-                trackColor = c.surface2,
-                gapSize = 0.dp,
-            )
-            else -> HorizontalDivider(thickness = 1.dp, color = c.divider)
-        }
+        // El avance del texto completo de un paper gana al del artículo, como en el paper (#90).
+        TopBarProgress(progress = full.progress ?: state.progress, translating = state.translating)
+    }
+}
+
+/**
+ * La línea bajo la cabecera: con avance, la barra con «Traduciendo… N de M»; si solo se
+ * traduce, una barra fina; si no, el divisor (pantallas 3, 4 y 8).
+ */
+@Composable
+internal fun TopBarProgress(progress: Progress?, translating: Boolean) {
+    val c = Atalaya.colors
+    when {
+        progress != null -> TranslationProgress(progress)
+        translating -> LinearProgressIndicator(
+            modifier = Modifier.fillMaxWidth().height(2.dp),
+            color = c.accent,
+            trackColor = c.surface2,
+            gapSize = 0.dp,
+        )
+        else -> HorizontalDivider(thickness = 1.dp, color = c.divider)
     }
 }
 
@@ -246,7 +258,7 @@ internal fun VersionSelector(showing: ArticleVersion, canSwitch: Boolean, onChoo
 }
 
 @Composable
-private fun ArticleBody(entry: Entry, state: ArticleUiState, listState: LazyListState) {
+private fun ArticleBody(entry: Entry, state: ArticleUiState, full: FullTextState, onReadFull: () -> Unit, listState: LazyListState) {
     val c = Atalaya.colors
     val uri = LocalUriHandler.current
     val muted = state.translating && state.showing == ArticleVersion.Original
@@ -292,6 +304,11 @@ private fun ArticleBody(entry: Entry, state: ArticleUiState, listState: LazyList
                 Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
                 Text("Abrir en la web", fontSize = 14.5.sp, color = c.text)
             }
+        }
+        // Solo si el artículo es un paper de arXiv (#90): «Leer completo» y el texto debajo.
+        if (entry.arxivId != null) {
+            item(key = "full-action") { FullTextAction(full, onReadFull, Modifier.padding(top = 8.dp)) }
+            fullTextSection(full, onReadFull)
         }
     }
 }

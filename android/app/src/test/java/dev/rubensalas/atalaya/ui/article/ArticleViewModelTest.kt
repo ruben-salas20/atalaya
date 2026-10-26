@@ -6,12 +6,20 @@ import dev.rubensalas.atalaya.data.api.EntryPage
 import dev.rubensalas.atalaya.data.api.EntryQuery
 import dev.rubensalas.atalaya.data.api.EntrySummary
 import dev.rubensalas.atalaya.data.api.EntryUpdate
+import dev.rubensalas.atalaya.data.api.FullPaper
+import dev.rubensalas.atalaya.data.api.FullPaperState
 import dev.rubensalas.atalaya.data.api.Id
 import dev.rubensalas.atalaya.data.api.MarkAllReadQuery
+import dev.rubensalas.atalaya.data.api.Paper
+import dev.rubensalas.atalaya.data.api.PaperPage
+import dev.rubensalas.atalaya.data.api.PaperQuery
 import dev.rubensalas.atalaya.data.api.Progress
+import dev.rubensalas.atalaya.data.api.QueryTranslation
 import dev.rubensalas.atalaya.data.api.Sidebar
 import dev.rubensalas.atalaya.data.api.TranslationState
 import dev.rubensalas.atalaya.data.list.ListRepository
+import dev.rubensalas.atalaya.data.papers.PapersApi
+import dev.rubensalas.atalaya.data.papers.PapersRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -57,9 +65,33 @@ class ArticleViewModelTest {
         }
     }
 
+    /** Solo cuenta las lecturas y peticiones del paper completo. */
+    private class FakePapersApi : PapersApi {
+        val fullReads = mutableListOf<String>()
+        val fullRequests = mutableListOf<String>()
+        var full = FullPaper(FullPaperState.NotRequested)
+
+        override suspend fun translatePaperQuery(q: String): QueryTranslation = throw UnsupportedOperationException()
+        override suspend fun searchPapers(query: PaperQuery): PaperPage = throw UnsupportedOperationException()
+        override suspend fun paper(arxivId: String): Paper = throw UnsupportedOperationException()
+        override suspend fun savePaper(arxivId: String): EntrySummary = throw UnsupportedOperationException()
+
+        override suspend fun fullPaper(arxivId: String): FullPaper {
+            fullReads += arxivId
+            return full
+        }
+
+        override suspend fun requestFullPaper(arxivId: String): FullPaper {
+            fullRequests += arxivId
+            return full
+        }
+    }
+
     private val dispatcher = StandardTestDispatcher()
     private val scope = TestScope(dispatcher)
     private val repo = FakeRepo()
+    private val papersApi = FakePapersApi()
+    private val papers = PapersRepository(papersApi)
 
     @Before
     fun setUp() = Dispatchers.setMain(dispatcher)
@@ -67,7 +99,61 @@ class ArticleViewModelTest {
     @After
     fun tearDown() = Dispatchers.resetMain()
 
-    private fun newVm() = ArticleViewModel(7, repo, parseDispatcher = dispatcher, pollInterval = 3_000)
+    private fun newVm() = ArticleViewModel(7, repo, papers, parseDispatcher = dispatcher, pollInterval = 3_000)
+
+    @Test
+    fun articleWithoutArxivIdNeverAsksForTheFullText() = with(scope) {
+        val vm = newVm()
+        runCurrent()
+        vm.setActive(true)
+        advanceTimeBy(30_000)
+        assertTrue(papersApi.fullReads.isEmpty())
+        assertTrue(papersApi.fullRequests.isEmpty())
+        assertEquals(FullPaperState.NotRequested, vm.full.value.state)
+    }
+
+    @Test
+    fun paperArticleReadsItsFullTextOnce() = with(scope) {
+        repo.responses += ENTRY.copy(arxivId = "2610.08812", translation = TranslationState.NotNeeded)
+        val vm = newVm()
+        runCurrent()
+        assertEquals(listOf("2610.08812"), papersApi.fullReads)
+
+        // Releer el artículo (p. ej. al volver a abrirlo) no vuelve a abrir el paper.
+        vm.load()
+        runCurrent()
+        assertEquals(listOf("2610.08812"), papersApi.fullReads)
+    }
+
+    @Test
+    fun fullTextPollsWhileShownAndStopsInBackground() = with(scope) {
+        papersApi.full = FullPaper(FullPaperState.Pending, html = "<p>Hola</p>", progress = Progress(1, 2))
+        repo.responses += ENTRY.copy(arxivId = "2610.08812", translation = TranslationState.NotNeeded)
+        val vm = newVm()
+        runCurrent()
+        assertEquals(1, papersApi.fullReads.size)
+
+        vm.setActive(true)
+        advanceTimeBy(3_001)
+        assertEquals(2, papersApi.fullReads.size)
+        assertEquals(Progress(1, 2), vm.full.value.progress)
+
+        vm.setActive(false)
+        advanceTimeBy(30_000)
+        assertEquals(2, papersApi.fullReads.size)
+    }
+
+    @Test
+    fun readFullAsksTheServiceOnce() = with(scope) {
+        repo.responses += ENTRY.copy(arxivId = "2610.08812", translation = TranslationState.NotNeeded)
+        val vm = newVm()
+        runCurrent()
+        vm.readFull()
+        runCurrent()
+        assertEquals(listOf("2610.08812"), papersApi.fullRequests)
+        assertEquals(FullPaperState.NotRequested, vm.full.value.state)
+        assertFalse(vm.full.value.requesting)
+    }
 
     @Test
     fun pendingShowsOriginalAndSwitchesToSpanishWhenDone() = with(scope) {
@@ -208,7 +294,7 @@ class ArticleViewModelTest {
         val failing = object : ListRepository by repo {
             override suspend fun entry(id: Id): Entry = throw ApiException(404, "No existe")
         }
-        val vm = ArticleViewModel(7, failing, parseDispatcher = dispatcher)
+        val vm = ArticleViewModel(7, failing, papers, parseDispatcher = dispatcher)
         runCurrent()
         assertEquals("Este artículo ya no existe en Miniflux.", vm.state.value.error)
         assertNull(vm.state.value.entry)
