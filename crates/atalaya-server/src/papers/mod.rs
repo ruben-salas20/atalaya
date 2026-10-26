@@ -13,6 +13,7 @@
 //!    su traducción ([`abstracts`]).
 //! 4. `POST /api/papers/{arxiv_id}/save` lo guarda en Miniflux ([`saved`]).
 
+pub mod abstract_math;
 pub mod abstracts;
 pub mod arxiv;
 pub mod db;
@@ -308,11 +309,21 @@ async fn open(
         .remove(&paper.arxiv_id);
     let (translation, translated_abstract) = papers.abstract_state(&paper).await;
     let saved = papers.saved_entries().await.get(&paper.arxiv_id).copied();
+    let (abstract_html, translated_abstract_html) = papers
+        .full()
+        .abstract_html(
+            &paper.arxiv_id,
+            &paper.abstract_text,
+            translated_abstract.as_deref(),
+        )
+        .await;
     Ok(Json(Paper {
         summary: summary(&paper, title.as_ref(), saved),
         abstract_text: paper.abstract_text.clone(),
         translation,
         translated_abstract,
+        abstract_html,
+        translated_abstract_html,
         abs_url: arxiv::abs_url(&paper.arxiv_id),
         pdf_url: arxiv::pdf_url(&paper.arxiv_id),
     }))
@@ -357,9 +368,13 @@ pub async fn formula_svg(
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
     let id = arxiv::strip_version(raw_id.trim()).to_owned();
+    // `rK.svg` es la fórmula K del resumen (#80); se guarda con número negativo.
     let n = file
         .strip_suffix(".svg")
-        .and_then(|n| n.parse::<i64>().ok());
+        .and_then(|n| match n.strip_prefix('r') {
+            Some(k) => k.parse::<i64>().ok().map(|k| -(k + 1)),
+            None => n.parse::<i64>().ok(),
+        });
     let (true, Some(n)) = (arxiv::is_valid_id(&id), n) else {
         return AppError::not_found("Esa fórmula no existe").into_response();
     };

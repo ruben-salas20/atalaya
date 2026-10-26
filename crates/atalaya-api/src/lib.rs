@@ -452,6 +452,14 @@ pub struct Paper {
     /// Resumen en español, con los mismos párrafos. Solo con
     /// `translation: Done`.
     pub translated_abstract: Option<String>,
+    /// El resumen original en HTML, solo si tiene fórmulas (`$…$`): un `<p>`
+    /// por párrafo y cada fórmula como en [`FullPaper::html`] (#80). Sin
+    /// fórmulas no viene, y la app usa `abstract_text`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abstract_html: Option<String>,
+    /// Lo mismo para `translated_abstract`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translated_abstract_html: Option<String>,
     /// Página del paper: `https://arxiv.org/abs/2610.08812`.
     pub abs_url: String,
     /// `https://arxiv.org/pdf/2610.08812`.

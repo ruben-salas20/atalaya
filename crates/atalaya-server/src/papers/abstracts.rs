@@ -9,9 +9,10 @@ use std::time::{Duration, Instant};
 use atalaya_api::TranslationState;
 
 use super::{
-    Papers,
+    Papers, abstract_math,
     arxiv::ArxivPaper,
     db::{self, FIELD_ABSTRACT},
+    full,
 };
 use crate::{
     content, lang,
@@ -146,9 +147,23 @@ impl Papers {
         let mut out = Vec::with_capacity(paragraphs.len());
         let mut kept = 0;
         for p in &paragraphs {
-            let segment = {
+            let segment = if abstract_math::formulas(p).is_empty() {
                 let _permit = self.gpu_permit().await;
                 content::translate_segment(self.llama(), p).await?
+            } else {
+                // Con fórmulas, cada una va como marca y el modelo no toca su
+                // LaTeX (#80, ADR 0010). Vuelve como texto con `$…$`.
+                let marked = abstract_math::marked(p);
+                let mut segment = {
+                    let _permit = self.gpu_permit().await;
+                    full::translate_paragraph(self.llama(), &marked).await?
+                };
+                segment.html = if segment.translated {
+                    abstract_math::unmarked(&segment.html, p)
+                } else {
+                    (*p).to_owned()
+                };
+                segment
             };
             if !segment.translated {
                 kept += 1;
