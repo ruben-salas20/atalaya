@@ -162,7 +162,7 @@ async fn translate_query(
     State(state): State<AppState>,
     query: Result<Query<QueryTranslationRequest>, QueryRejection>,
 ) -> AppResult<Json<QueryTranslation>> {
-    let Query(req) = query.map_err(|e| invalid(e.body_text()))?;
+    let Query(req) = query.map_err(|e| invalid(crate::error::detail_es(&e.body_text())))?;
     let english = state.papers.english_query(&req.q).await?;
     Ok(Json(QueryTranslation { q: req.q, english }))
 }
@@ -171,7 +171,7 @@ async fn search(
     State(state): State<AppState>,
     query: Result<Query<PaperQuery>, QueryRejection>,
 ) -> AppResult<Json<PaperPage>> {
-    let Query(query) = query.map_err(|e| invalid(e.body_text()))?;
+    let Query(query) = query.map_err(|e| invalid(crate::error::detail_es(&e.body_text())))?;
     let papers = &state.papers;
     if query.field != PaperField::Author
         && let Some(id) = arxiv::id_in_query(&query.q)
@@ -267,7 +267,7 @@ fn invalid(detail: String) -> AppError {
 /// El identificador de la ruta, sin versión. La barra de los antiguos llega
 /// ya decodificada (`hep-th%2F9901001` → `hep-th/9901001`).
 fn arxiv_id(path: Result<Path<String>, PathRejection>) -> AppResult<String> {
-    let Path(raw) = path.map_err(|e| invalid(e.body_text()))?;
+    let Path(raw) = path.map_err(|e| invalid(crate::error::detail_es(&e.body_text())))?;
     let id = arxiv::strip_version(raw.trim()).to_owned();
     if !arxiv::is_valid_id(&id) {
         return Err(AppError::bad_request(format!(

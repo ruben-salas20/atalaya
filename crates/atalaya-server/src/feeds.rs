@@ -10,7 +10,7 @@ use atalaya_api::{
 };
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::State,
     http::StatusCode,
     routing::{get, patch, post},
 };
@@ -21,7 +21,7 @@ use tokio::task::JoinSet;
 
 use crate::{
     AppState,
-    error::{AppError, AppResult},
+    error::{ApiJson, ApiPath, AppError, AppResult},
     feed_stats::{EntrySample, FeedStats, SAMPLE},
     miniflux::Miniflux,
     papers::saved::FEED_URL,
@@ -49,7 +49,7 @@ pub fn routes() -> Router<AppState> {
 
 async fn discover(
     State(state): State<AppState>,
-    Json(req): Json<DiscoverRequest>,
+    ApiJson(req): ApiJson<DiscoverRequest>,
 ) -> AppResult<Json<Vec<DiscoveredFeed>>> {
     let url = normalize_url(&req.url)?;
     let found = state.miniflux.discover(&url).await.map_err(remote_error)?;
@@ -79,7 +79,7 @@ async fn list_feeds(State(state): State<AppState>) -> AppResult<Json<Vec<Feed>>>
 
 async fn create_feed(
     State(state): State<AppState>,
-    Json(req): Json<NewFeed>,
+    ApiJson(req): ApiJson<NewFeed>,
 ) -> AppResult<(StatusCode, Json<Feed>)> {
     let feed_url = normalize_url(&req.feed_url)?;
     // Miniflux descarga cada artículo antes de responder y puede tardar más de
@@ -110,8 +110,8 @@ async fn create_feed(
 
 async fn update_feed(
     State(state): State<AppState>,
-    Path(id): Path<Id>,
-    Json(req): Json<FeedUpdate>,
+    ApiPath(id): ApiPath<Id>,
+    ApiJson(req): ApiJson<FeedUpdate>,
 ) -> AppResult<Json<Feed>> {
     let title = req.title.as_deref().map(non_empty_title).transpose()?;
     let body = MinifluxFeedModification {
@@ -124,7 +124,10 @@ async fn update_feed(
     Ok(Json(state.miniflux.with_stats(feed, &state.stats).await))
 }
 
-async fn delete_feed(State(state): State<AppState>, Path(id): Path<Id>) -> AppResult<StatusCode> {
+async fn delete_feed(
+    State(state): State<AppState>,
+    ApiPath(id): ApiPath<Id>,
+) -> AppResult<StatusCode> {
     state.miniflux.delete(&format!("/v1/feeds/{id}")).await?;
     state.stats.clear();
     Ok(StatusCode::NO_CONTENT)
@@ -144,7 +147,7 @@ async fn list_categories(State(state): State<AppState>) -> AppResult<Json<Vec<Ca
 
 async fn create_category(
     State(state): State<AppState>,
-    Json(req): Json<CategoryInput>,
+    ApiJson(req): ApiJson<CategoryInput>,
 ) -> AppResult<(StatusCode, Json<Category>)> {
     let body = CategoryInput {
         title: non_empty_title(&req.title)?,
@@ -158,8 +161,8 @@ async fn create_category(
 
 async fn rename_category(
     State(state): State<AppState>,
-    Path(id): Path<Id>,
-    Json(req): Json<CategoryInput>,
+    ApiPath(id): ApiPath<Id>,
+    ApiJson(req): ApiJson<CategoryInput>,
 ) -> AppResult<Json<Category>> {
     let body = CategoryInput {
         title: non_empty_title(&req.title)?,
@@ -174,7 +177,7 @@ async fn rename_category(
 /// Solo borra carpetas vacías. Miniflux borraría también sus feeds.
 async fn delete_category(
     State(state): State<AppState>,
-    Path(id): Path<Id>,
+    ApiPath(id): ApiPath<Id>,
 ) -> AppResult<StatusCode> {
     let feeds: Vec<MinifluxFeed> = state
         .miniflux
