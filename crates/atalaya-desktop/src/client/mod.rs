@@ -118,14 +118,16 @@ impl ApiClient {
     }
 
     /// `GET` que guarda la respuesta en disco con el nombre `key` si
-    /// `keep(&respuesta)`. Sin red, responde con lo guardado. Antes manda los
-    /// cambios hechos sin red, para que la respuesta ya los incluya.
+    /// `keep(&respuesta)`. Sin red, responde con lo guardado, pasado por
+    /// `from_copy` para aplicarle los cambios que esperan en la cola. Antes
+    /// manda esos cambios, para que la respuesta ya los incluya.
     pub(crate) fn get_cached<T, Q>(
         &self,
         key: &str,
         path: &str,
         query: &Q,
         keep: impl Fn(&T) -> bool,
+        from_copy: impl Fn(T) -> T,
     ) -> Result<T>
     where
         T: DeserializeOwned + Serialize,
@@ -152,7 +154,7 @@ impl ApiClient {
                 match self.cache.as_ref().and_then(|c| c.load(key)) {
                     Some(value) => {
                         self.offline.store(true, Ordering::Relaxed);
-                        Ok(value)
+                        Ok(from_copy(value))
                     }
                     None => Err(failure.message),
                 }
@@ -170,14 +172,14 @@ impl ApiClient {
             return;
         };
         let _turn = self.sending.lock().unwrap_or_else(PoisonError::into_inner);
-        for (id, update) in pending.all() {
+        for (id, queued) in pending.all() {
             match self.try_send_json::<EntrySummary, _>(
                 Method::PATCH,
                 &format!("/api/entries/{id}"),
-                &update,
+                &queued.update,
             ) {
                 Err(failure) if failure.retry => break,
-                _ => pending.forget(id, &update),
+                _ => pending.forget(id, &queued.update),
             }
         }
     }
