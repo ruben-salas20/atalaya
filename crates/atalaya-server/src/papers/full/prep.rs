@@ -25,7 +25,15 @@ pub struct Prepared {
 }
 
 /// Atributos que se conservan; el resto se quita.
-const KEPT_ATTRIBUTES: [&str; 7] = ["href", "src", "alt", "class", "colspan", "rowspan", "data-formula"];
+const KEPT_ATTRIBUTES: [&str; 7] = [
+    "href",
+    "src",
+    "alt",
+    "class",
+    "colspan",
+    "rowspan",
+    "data-formula",
+];
 
 /// Elementos que se quitan enteros.
 const DROPPED: [&str; 5] = ["script", "style", "nav", "header", "footer"];
@@ -56,7 +64,10 @@ pub fn prepare(page: &str, base: &str) -> Prepared {
         formulas: Vec::new(),
     };
     if let Some(article) = doc.select(&article).next() {
-        let mut w = Writer { base: &base, out: &mut out };
+        let mut w = Writer {
+            base: &base,
+            out: &mut out,
+        };
         for child in article.children() {
             w.node(child);
         }
@@ -100,9 +111,9 @@ impl Writer<'_> {
             let display = v.attr("display") == Some("block");
             let n = self.push_formula(latex, display);
             if display {
-                self.out
-                    .html
-                    .push_str(&format!("<img class=\"atalaya-formula-bloque\" data-formula=\"{n}\">"));
+                self.out.html.push_str(&format!(
+                    "<img class=\"atalaya-formula-bloque\" data-formula=\"{n}\">"
+                ));
             } else {
                 self.out
                     .html
@@ -127,9 +138,10 @@ impl Writer<'_> {
             } else {
                 value.to_string()
             };
-            self.out
-                .html
-                .push_str(&format!(" {attr}=\"{}\"", escapar(&value).replace('"', "&quot;")));
+            self.out.html.push_str(&format!(
+                " {attr}=\"{}\"",
+                escapar(&value).replace('"', "&quot;")
+            ));
         }
         self.out.html.push('>');
         if VOID.contains(&name) {
@@ -156,9 +168,9 @@ impl Writer<'_> {
             for m in row.select(&math) {
                 if let Some(latex) = m.value().attr("alttext") {
                     let n = self.push_formula(latex, true);
-                    self.out
-                        .html
-                        .push_str(&format!("<img class=\"atalaya-formula-bloque\" data-formula=\"{n}\">"));
+                    self.out.html.push_str(&format!(
+                        "<img class=\"atalaya-formula-bloque\" data-formula=\"{n}\">"
+                    ));
                 }
             }
             if let Some(number) = row.select(&tag).next() {
@@ -343,10 +355,7 @@ pub fn table_cells(table_html: &str) -> (String, Vec<String>) {
         let interior = &table_html[fin_abre + 1..inicio_cierre];
         salida.push_str(&table_html[pos..=fin_abre]);
         if has_text_outside_markers(interior) {
-            salida.push_str(&format!(
-                "{CELDA_ABRE}{}{CELDA_CIERRA}",
-                textos.len()
-            ));
+            salida.push_str(&format!("{CELDA_ABRE}{}{CELDA_CIERRA}", textos.len()));
             textos.push(interior.to_string());
         } else {
             salida.push_str(interior);
@@ -506,7 +515,11 @@ mod tests {
             ),
             BASE,
         );
-        assert!(p.html.contains("a <m id=\"0\">x_{t}&lt;y&amp;z</m> b"), "{}", p.html);
+        assert!(
+            p.html.contains("a <m id=\"0\">x_{t}&lt;y&amp;z</m> b"),
+            "{}",
+            p.html
+        );
         assert!(!p.html.contains("<math"));
         assert_eq!(p.formulas.len(), 1);
         assert_eq!(p.formulas[0].latex, "x_{t}<y&z");
@@ -541,7 +554,10 @@ mod tests {
             BASE,
         );
         assert!(!p.html.contains("<table"), "{}", p.html);
-        assert!(!p.html.contains("u_{t}"), "la fórmula de bloque no debe llegar como texto");
+        assert!(
+            !p.html.contains("u_{t}"),
+            "la fórmula de bloque no debe llegar como texto"
+        );
         assert!(
             p.html.contains(
                 "<img class=\"atalaya-formula-bloque\" data-formula=\"0\"><span class=\"atalaya-numero\">(1)</span>"
@@ -565,9 +581,15 @@ mod tests {
             ),
             BASE,
         );
-        assert!(p.html.contains("<img class=\"atalaya-formula-bloque\" data-formula=\"0\">"));
+        assert!(
+            p.html
+                .contains("<img class=\"atalaya-formula-bloque\" data-formula=\"0\">")
+        );
         assert!(!p.html.contains("atalaya-numero"));
-        assert!(p.html.contains("<img class=\"atalaya-formula-bloque\" data-formula=\"1\">"));
+        assert!(
+            p.html
+                .contains("<img class=\"atalaya-formula-bloque\" data-formula=\"1\">")
+        );
         assert!(p.formulas.iter().all(|f| f.display));
     }
 
@@ -582,7 +604,8 @@ mod tests {
             BASE,
         );
         assert!(
-            p.html.contains("src=\"https://arxiv.org/html/2610.31646v1/fig_design.png\""),
+            p.html
+                .contains("src=\"https://arxiv.org/html/2610.31646v1/fig_design.png\""),
             "{}",
             p.html
         );
@@ -602,8 +625,17 @@ mod tests {
             BASE,
         );
         assert!(p.html.contains("<p class=\"ltx_p\">"), "{}", p.html);
-        assert!(p.html.contains("<a href=\"#S1\" class=\"ltx_ref\">enlace</a>"), "{}", p.html);
-        assert!(p.html.contains("<td colspan=\"2\" rowspan=\"1\">x</td>"), "{}", p.html);
+        assert!(
+            p.html
+                .contains("<a href=\"#S1\" class=\"ltx_ref\">enlace</a>"),
+            "{}",
+            p.html
+        );
+        assert!(
+            p.html.contains("<td colspan=\"2\" rowspan=\"1\">x</td>"),
+            "{}",
+            p.html
+        );
         for quitado in ["id=", "style=", "intent=", "aria-", "title=", "align="] {
             assert!(!p.html.contains(quitado), "queda {quitado}: {}", p.html);
         }
@@ -623,20 +655,34 @@ mod tests {
 
     #[test]
     fn marcas_bien_hechas_se_aceptan() {
-        assert!(check_markers("<m id=\"0\">\\to</m> comprimir", "comprimir <m id=\"0\">\\to</m>").is_ok());
+        assert!(
+            check_markers(
+                "<m id=\"0\">\\to</m> comprimir",
+                "comprimir <m id=\"0\">\\to</m>"
+            )
+            .is_ok()
+        );
         assert!(check_markers("a <m id=\"0\">x</m> *b*", "a <m id=\"0\">x</m> *b*").is_ok());
         assert!(check_markers("sin marcas", "sin marcas traducidas").is_ok());
     }
 
     #[test]
     fn check_markers_rechaza_marca_perdida() {
-        let e = check_markers("<m id=\"0\">x</m> y <m id=\"1\">z</m>", "<m id=\"0\">x</m> y").unwrap_err();
+        let e = check_markers(
+            "<m id=\"0\">x</m> y <m id=\"1\">z</m>",
+            "<m id=\"0\">x</m> y",
+        )
+        .unwrap_err();
         assert!(e.contains("falta la marca 1"), "{e}");
     }
 
     #[test]
     fn check_markers_rechaza_latex_cambiado() {
-        let e = check_markers("<m id=\"0\">\\rightarrow</m>", "<m id=\"0\">\\leftarrow</m>").unwrap_err();
+        let e = check_markers(
+            "<m id=\"0\">\\rightarrow</m>",
+            "<m id=\"0\">\\leftarrow</m>",
+        )
+        .unwrap_err();
         assert!(e.contains("LaTeX de la marca 0"), "{e}");
     }
 
@@ -652,7 +698,11 @@ mod tests {
 
     #[test]
     fn check_markers_rechaza_markdown_anadido() {
-        let e = check_markers("el <m id=\"0\">x</m> embeddings", "el <m id=\"0\">x</m> *embeddings*").unwrap_err();
+        let e = check_markers(
+            "el <m id=\"0\">x</m> embeddings",
+            "el <m id=\"0\">x</m> *embeddings*",
+        )
+        .unwrap_err();
         assert!(e.contains("Markdown"), "{e}");
         assert!(check_markers("`code` y <m id=\"0\">x</m>", "`code` y <m id=\"0\">x</m>").is_ok());
         assert!(check_markers("hecho", "hecho `así`").is_err());
@@ -661,10 +711,16 @@ mod tests {
     #[test]
     fn letras_fuera_de_las_marcas() {
         assert!(!has_text_outside_markers("<m id=\"0\">\\alpha</m>"));
-        assert!(!has_text_outside_markers("<m id=\"0\">\\alpha</m> 1.25 &nbsp; <span>(2)</span>"));
+        assert!(!has_text_outside_markers(
+            "<m id=\"0\">\\alpha</m> 1.25 &nbsp; <span>(2)</span>"
+        ));
         assert!(has_text_outside_markers("<m id=\"0\">x</m> palabra"));
-        assert!(has_text_outside_markers("<span class=\"ltx_text\">Box</span>"));
-        assert!(!has_text_outside_markers("<img src=\"a.png\" alt=\"Refer\">"));
+        assert!(has_text_outside_markers(
+            "<span class=\"ltx_text\">Box</span>"
+        ));
+        assert!(!has_text_outside_markers(
+            "<img src=\"a.png\" alt=\"Refer\">"
+        ));
     }
 
     #[test]
@@ -686,11 +742,18 @@ mod tests {
         );
         assert!(plantilla.contains("<td>0.0003</td>"), "{plantilla}");
         assert!(plantilla.contains("<td>12</td>"), "{plantilla}");
-        assert!(plantilla.contains("<atalaya-celda n=\"1\"></atalaya-celda>"), "{plantilla}");
+        assert!(
+            plantilla.contains("<atalaya-celda n=\"1\"></atalaya-celda>"),
+            "{plantilla}"
+        );
         // Con los mismos textos, la tabla vuelve idéntica.
         assert_eq!(fill_table(&plantilla, &textos), tabla);
         // Con textos traducidos, cada celda cambia y las demás no.
-        let traducido = vec!["Tasa».".to_string(), "<m id=\"0\">\\alpha</m> escala".to_string(), "Caja".to_string()];
+        let traducido = vec![
+            "Tasa».".to_string(),
+            "<m id=\"0\">\\alpha</m> escala".to_string(),
+            "Caja".to_string(),
+        ];
         let salida = fill_table(&plantilla, &traducido);
         assert!(salida.contains("<td>Caja</td>"), "{salida}");
         assert!(salida.contains("<td>1.5</td>"), "{salida}");
@@ -701,10 +764,16 @@ mod tests {
     fn prompt_y_lectura_de_celdas() {
         let celdas = vec!["Box".to_string(), "Cond. <m id=\"0\">x</m>".to_string()];
         let prompt = cells_prompt(&celdas);
-        assert!(prompt.contains("1. Box\n2. Cond. <m id=\"0\">x</m>\n"), "{prompt}");
+        assert!(
+            prompt.contains("1. Box\n2. Cond. <m id=\"0\">x</m>\n"),
+            "{prompt}"
+        );
         assert_eq!(
             parse_cells("1. Caja\n2. Cond. <m id=\"0\">x</m>\n", 2),
-            Some(vec!["Caja".to_string(), "Cond. <m id=\"0\">x</m>".to_string()])
+            Some(vec![
+                "Caja".to_string(),
+                "Cond. <m id=\"0\">x</m>".to_string()
+            ])
         );
         // Número de líneas distinto, orden distinto o texto sin numerar: no se acepta.
         assert_eq!(parse_cells("1. Caja\n", 2), None);

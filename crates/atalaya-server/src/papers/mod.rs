@@ -59,7 +59,10 @@ pub fn routes() -> Router<AppState> {
         .route("/papers/search", get(search))
         .route("/papers/{arxiv_id}", get(open))
         .route("/papers/{arxiv_id}/save", post(save))
-        .route("/papers/{arxiv_id}/full", get(full_state).post(full_request))
+        .route(
+            "/papers/{arxiv_id}/full",
+            get(full_state).post(full_request),
+        )
 }
 
 #[derive(Clone)]
@@ -354,7 +357,9 @@ pub async fn formula_svg(
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
     let id = arxiv::strip_version(raw_id.trim()).to_owned();
-    let n = file.strip_suffix(".svg").and_then(|n| n.parse::<i64>().ok());
+    let n = file
+        .strip_suffix(".svg")
+        .and_then(|n| n.parse::<i64>().ok());
     let (true, Some(n)) = (arxiv::is_valid_id(&id), n) else {
         return AppError::not_found("Esa fórmula no existe").into_response();
     };
@@ -362,7 +367,10 @@ pub async fn formula_svg(
         Ok(Some(svg)) => (
             [
                 (axum::http::header::CONTENT_TYPE, "image/svg+xml"),
-                (axum::http::header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+                (
+                    axum::http::header::CACHE_CONTROL,
+                    "public, max-age=31536000, immutable",
+                ),
             ],
             svg,
         )

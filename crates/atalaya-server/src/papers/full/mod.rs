@@ -232,7 +232,10 @@ impl FullPapers {
             Ok(true) => (db::STATE_DONE, None),
             Ok(false) => (db::STATE_NOT_AVAILABLE, None),
             Err(e) => {
-                tracing::warn!(paper = arxiv_id, "no se pudo traducir el paper completo: {e}");
+                tracing::warn!(
+                    paper = arxiv_id,
+                    "no se pudo traducir el paper completo: {e}"
+                );
                 (db::STATE_FAILED, Some(e.clone()))
             }
         };
@@ -242,11 +245,21 @@ impl FullPapers {
             .translations
             .store()
             .call(move |c| {
-                db::set_state(c, &id, state, final_html.as_deref(), error.as_deref(), Some(&model))
+                db::set_state(
+                    c,
+                    &id,
+                    state,
+                    final_html.as_deref(),
+                    error.as_deref(),
+                    Some(&model),
+                )
             })
             .await;
         if let Err(e) = saved {
-            tracing::error!(paper = arxiv_id, "no se pudo guardar el paper completo: {e}");
+            tracing::error!(
+                paper = arxiv_id,
+                "no se pudo guardar el paper completo: {e}"
+            );
         }
     }
 
@@ -323,7 +336,10 @@ impl FullPapers {
             match part {
                 Part::Translate(text) => {
                     if prep::has_text_outside_markers(text) {
-                        pending.push(Unit::Paragraph(index, self.queue(qid, SegmentKind::Paper, text.clone())));
+                        pending.push(Unit::Paragraph(
+                            index,
+                            self.queue(qid, SegmentKind::Paper, text.clone()),
+                        ));
                     } else {
                         self.record_paragraph(arxiv_id, index, text);
                     }
@@ -338,7 +354,11 @@ impl FullPapers {
                             continue;
                         }
                         let json = serde_json::to_string(&cells).map_err(|e| e.to_string())?;
-                        pending.push(Unit::Table(k, template, self.queue(qid, SegmentKind::TableCells, json)));
+                        pending.push(Unit::Table(
+                            k,
+                            template,
+                            self.queue(qid, SegmentKind::TableCells, json),
+                        ));
                     }
                 }
             }
@@ -489,6 +509,9 @@ mod tests {
 
     #[test]
     fn finds_table_refs() {
-        assert_eq!(table_refs("<p></p><img data-tabla=\"3\"><img data-tabla=\"4\">"), [3, 4]);
+        assert_eq!(
+            table_refs("<p></p><img data-tabla=\"3\"><img data-tabla=\"4\">"),
+            [3, 4]
+        );
     }
 }

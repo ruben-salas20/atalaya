@@ -56,11 +56,13 @@ pub fn save_formulas(
     svgs: &[Option<Svg>],
 ) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
-    tx.execute("DELETE FROM paper_formulas WHERE arxiv_id = ?1", params![arxiv_id])?;
+    tx.execute(
+        "DELETE FROM paper_formulas WHERE arxiv_id = ?1",
+        params![arxiv_id],
+    )?;
     {
-        let mut insert = tx.prepare_cached(
-            "INSERT INTO paper_formulas (arxiv_id, n, svg) VALUES (?1, ?2, ?3)",
-        )?;
+        let mut insert =
+            tx.prepare_cached("INSERT INTO paper_formulas (arxiv_id, n, svg) VALUES (?1, ?2, ?3)")?;
         for (n, svg) in svgs.iter().enumerate() {
             if let Some(svg) = svg {
                 insert.execute(params![arxiv_id, n as i64, svg.svg])?;
