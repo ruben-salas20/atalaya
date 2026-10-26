@@ -34,6 +34,10 @@
 //! | `GET /api/papers/search` | [`PaperQuery`] en la URL | [`PaperPage`] | 4.1 |
 //! | `GET /api/papers/{arxiv_id}` | | [`Paper`] | 4.2 |
 //! | `POST /api/papers/{arxiv_id}/save` | | 201 y [`EntrySummary`]; 200 si ya estaba | 4.2 |
+//! | `DELETE /api/entries/{id}/translation` | | 204; 409 si se está traduciendo | #91 |
+//! | `DELETE /api/papers/{arxiv_id}/translation` | | 204; 409 si se está traduciendo | #91 |
+//! | `GET /api/translations/cleanup` | | [`Cleanup`]: lo que se borraría | #91 |
+//! | `POST /api/translations/cleanup` | | [`Cleanup`]: lo que se borró | #91 |
 //!
 //! Los identificadores antiguos de arXiv llevan una barra (`hep-th/9901001`).
 //! En la ruta va codificada: `hep-th%2F9901001`.
@@ -469,6 +473,20 @@ pub struct Paper {
     pub abs_url: String,
     /// `https://arxiv.org/pdf/2610.08812`.
     pub pdf_url: String,
+}
+
+/// `GET /api/translations/cleanup` (qué se borraría) y `POST` (lo borra):
+/// las traducciones guardadas de lo ya leído (#91). Son los artículos leídos
+/// y no guardados, y los papers que no están en Guardados. No toca Miniflux:
+/// si se vuelve a abrir uno, se traduce otra vez.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Cleanup {
+    /// Artículos con traducción del texto guardada.
+    pub entries: u64,
+    /// Papers con resumen, texto completo o fórmulas guardados.
+    pub papers: u64,
+    /// Lo que ocupa ese texto, en bytes (aproximado).
+    pub bytes: u64,
 }
 
 /// Estado del paper completo traducido (P7, ADR 0010).

@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod cleanup;
 pub mod config;
 pub mod content;
 pub mod entries;
@@ -66,6 +67,7 @@ pub fn app(state: AppState) -> Router {
         .merge(entries::routes())
         .merge(feeds::routes())
         .merge(papers::routes())
+        .merge(cleanup::routes())
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_api_key,

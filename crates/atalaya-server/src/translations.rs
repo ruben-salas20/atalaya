@@ -71,6 +71,11 @@ impl Translations {
         &self.inner.in_progress
     }
 
+    /// Si el texto de ese artículo se está traduciendo ahora (#91).
+    pub fn is_translating(&self, entry_id: Id) -> bool {
+        self.in_progress().contains(entry_id)
+    }
+
     /// Títulos ya traducidos de esos artículos. Los que faltan en el mapa,
     /// aún no se han visto. Paso 2.3.
     pub async fn titles(&self, entry_ids: &[Id]) -> HashMap<Id, TitleInfo> {

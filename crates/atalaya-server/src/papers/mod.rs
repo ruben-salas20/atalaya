@@ -85,6 +85,17 @@ struct Inner {
 }
 
 impl Papers {
+    /// Si el resumen o el texto completo de ese paper se está traduciendo (#91).
+    pub fn is_translating(&self, arxiv_id: &str) -> bool {
+        self.abstracts_running().contains(arxiv_id) || self.full().is_running(arxiv_id)
+    }
+
+    /// Olvida lo que se guarda en memoria de ese paper, tras borrar su
+    /// traducción (#91).
+    pub fn forget_cached(&self, arxiv_id: &str) {
+        self.full().forget_abstract_svgs(arxiv_id);
+    }
+
     pub fn full(&self) -> &full::FullPapers {
         &self.inner.full
     }

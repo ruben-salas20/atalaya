@@ -131,6 +131,15 @@ const ENGLISH: &[&str] = &[
 #[derive(Default)]
 pub struct InProgress(Mutex<HashMap<Id, Partial>>);
 
+impl InProgress {
+    pub fn contains(&self, entry_id: Id) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(&entry_id)
+    }
+}
+
 /// Lo traducido hasta ahora de un artículo en curso. Vacío mientras se pide el
 /// artículo completo a Miniflux.
 #[derive(Default)]
