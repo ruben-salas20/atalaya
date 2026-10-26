@@ -26,6 +26,7 @@ use std::{
 use atalaya_api::{FullPaper, FullPaperState, Id, Progress};
 use tokio::sync::oneshot;
 
+use super::abstract_math;
 use crate::{
     content::{self, Part, Segment, SegmentJob, SegmentKind},
     llama::{CUT_OFF, Llama},
@@ -49,6 +50,8 @@ struct Inner {
     /// Script de MathJax: `ATALAYA_MATHJAX` o [`mathjax::DEFAULT_SCRIPT`].
     script: String,
     running: Mutex<HashMap<String, Running>>,
+    /// Las fórmulas del resumen ya convertidas, por paper (#80).
+    abstract_svgs: Mutex<HashMap<String, Arc<Vec<Option<Svg>>>>>,
 }
 
 /// Un paper que se está traduciendo: lo que lleva hecho (ADR 0015).
@@ -123,12 +126,104 @@ impl FullPapers {
                 translations,
                 script,
                 running: Mutex::new(HashMap::new()),
+                abstract_svgs: Mutex::new(HashMap::new()),
             }),
         }
     }
 
     fn running(&self) -> std::sync::MutexGuard<'_, HashMap<String, Running>> {
         self.inner.running.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// El resumen original y el traducido en HTML con sus fórmulas, si el
+    /// original tiene alguna (#80). Las fórmulas se convierten una vez por
+    /// paper y se guardan.
+    pub async fn abstract_html(
+        &self,
+        arxiv_id: &str,
+        original: &str,
+        translated: Option<&str>,
+    ) -> (Option<String>, Option<String>) {
+        let maths = abstract_math::formulas(original);
+        if maths.is_empty() {
+            return (None, None);
+        }
+        let svgs = self.abstract_svgs(arxiv_id, &maths).await;
+        let url_id = arxiv_id.replace('/', "%2F");
+        let url = |k: usize| format!("/formulas/{url_id}/r{k}.svg");
+        (
+            Some(abstract_math::html(original, &maths, &svgs, url)),
+            translated.map(|t| abstract_math::html(t, &maths, &svgs, url)),
+        )
+    }
+
+    async fn abstract_svgs(
+        &self,
+        arxiv_id: &str,
+        maths: &[abstract_math::Math],
+    ) -> Arc<Vec<Option<Svg>>> {
+        let cached = self
+            .inner
+            .abstract_svgs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(arxiv_id)
+            .cloned();
+        if let Some(svgs) = cached
+            && svgs.len() == maths.len()
+        {
+            return svgs;
+        }
+        let id = arxiv_id.to_owned();
+        let stored = self
+            .inner
+            .translations
+            .store()
+            .call(move |c| db::abstract_formulas(c, &id))
+            .await
+            .unwrap_or_default();
+        let svgs = if stored.is_empty() {
+            let input: Vec<(String, bool)> =
+                maths.iter().map(|m| (m.latex.clone(), m.display)).collect();
+            match mathjax::render(&self.inner.script, &input).await {
+                Ok(svgs) => {
+                    let (id, to_save) = (arxiv_id.to_owned(), svgs.clone());
+                    if let Err(e) = self
+                        .inner
+                        .translations
+                        .store()
+                        .call(move |c| db::save_abstract_formulas(c, &id, &to_save))
+                        .await
+                    {
+                        tracing::error!(
+                            paper = arxiv_id,
+                            "no se pudieron guardar las fórmulas del resumen: {e}"
+                        );
+                    }
+                    svgs
+                }
+                Err(e) => {
+                    // Sin SVG van como su LaTeX; se reintenta la próxima vez.
+                    tracing::warn!(paper = arxiv_id, "MathJax del resumen: {e}");
+                    return Arc::new(vec![None; maths.len()]);
+                }
+            }
+        } else {
+            let mut svgs = vec![None; maths.len()];
+            for (k, svg) in stored {
+                if let Some(slot) = svgs.get_mut(k) {
+                    *slot = Some(abstract_math::svg_from_stored(svg));
+                }
+            }
+            svgs
+        };
+        let svgs = Arc::new(svgs);
+        self.inner
+            .abstract_svgs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(arxiv_id.to_owned(), svgs.clone());
+        svgs
     }
 
     /// Cómo va el paper. Si se está traduciendo, sus párrafos pasan delante en

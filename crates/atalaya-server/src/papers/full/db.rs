@@ -49,7 +49,8 @@ pub fn set_state(
     Ok(())
 }
 
-/// Guarda las fórmulas ya convertidas, por su número. Borra las de antes.
+/// Guarda las fórmulas ya convertidas, por su número. Borra las de antes,
+/// pero no las del resumen (número negativo, #80).
 pub fn save_formulas(
     conn: &mut Connection,
     arxiv_id: &str,
@@ -57,7 +58,7 @@ pub fn save_formulas(
 ) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     tx.execute(
-        "DELETE FROM paper_formulas WHERE arxiv_id = ?1",
+        "DELETE FROM paper_formulas WHERE arxiv_id = ?1 AND n >= 0",
         params![arxiv_id],
     )?;
     {
@@ -70,6 +71,43 @@ pub fn save_formulas(
         }
     }
     tx.commit()
+}
+
+/// Guarda las fórmulas del resumen (#80): la K va con el número `-(K+1)`.
+pub fn save_abstract_formulas(
+    conn: &mut Connection,
+    arxiv_id: &str,
+    svgs: &[Option<Svg>],
+) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    tx.execute(
+        "DELETE FROM paper_formulas WHERE arxiv_id = ?1 AND n < 0",
+        params![arxiv_id],
+    )?;
+    {
+        let mut insert =
+            tx.prepare_cached("INSERT INTO paper_formulas (arxiv_id, n, svg) VALUES (?1, ?2, ?3)")?;
+        for (k, svg) in svgs.iter().enumerate() {
+            if let Some(svg) = svg {
+                insert.execute(params![arxiv_id, -(k as i64) - 1, svg.svg])?;
+            }
+        }
+    }
+    tx.commit()
+}
+
+/// Las fórmulas guardadas del resumen, como `(K, svg)`.
+pub fn abstract_formulas(
+    conn: &Connection,
+    arxiv_id: &str,
+) -> rusqlite::Result<Vec<(usize, String)>> {
+    let mut q =
+        conn.prepare_cached("SELECT n, svg FROM paper_formulas WHERE arxiv_id = ?1 AND n < 0")?;
+    let rows = q.query_map(params![arxiv_id], |r| {
+        let n: i64 = r.get(0)?;
+        Ok(((-n - 1) as usize, r.get::<_, String>(1)?))
+    })?;
+    rows.collect()
 }
 
 pub fn formula(conn: &Connection, arxiv_id: &str, n: i64) -> rusqlite::Result<Option<String>> {
