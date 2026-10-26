@@ -6,6 +6,7 @@
 //! segundos. Guardar no se deshace aquí, igual que en Android: se quita
 //! desde Guardados.
 
+use std::cell::RefCell;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,12 +21,12 @@ use gpui_base::text::{TextView, TextViewStyle};
 use gpui_component::scroll::ScrollableElement;
 use gpui_component::tooltip::Tooltip;
 
+use super::chunks::{Chunk, ChunkCache};
 use super::format::{abstract_paragraphs, paper_date};
 use super::formulas::Formulas;
-use super::full::{self, Formula, Part};
+use super::full::{self, Formula};
 use crate::assets::Icon;
 use crate::palette::Palette;
-use crate::ui::format::{code_in_pre, split_pending};
 use crate::ui::reader::{progress, toast, translation_progress};
 use crate::ui::widgets::{bar, icon, icon_button, more_menu};
 
@@ -68,6 +69,8 @@ pub struct PaperReader {
     requesting: bool,
     formulas: Arc<Formulas>,
     _full: Task<()>,
+    /// Los trozos del HTML ya partidos, para no partirlo en cada render (#89).
+    chunks: RefCell<ChunkCache>,
 }
 
 impl EventEmitter<PaperReaderEvent> for PaperReader {}
@@ -86,6 +89,7 @@ impl Default for PaperReader {
             requesting: false,
             formulas: Arc::new(Formulas::new()),
             _full: Task::ready(()),
+            chunks: RefCell::default(),
         }
     }
 }
@@ -102,6 +106,7 @@ impl PaperReader {
         self.full_error = None;
         self.requesting = false;
         self.formulas.forget_failed();
+        self.chunks.get_mut().clear();
         self.load_full(id.clone(), Duration::ZERO, cx);
         self.fetch(id, Duration::ZERO, cx);
         cx.notify();
@@ -599,6 +604,7 @@ impl PaperReader {
     /// Los trozos de un HTML del servicio (el paper completo o el resumen), en
     /// orden: texto con sus fórmulas en línea, y las fórmulas aparte,
     /// centradas. `id` da nombre a los textos; `dimmed` los pinta en gris.
+    /// Los trozos vienen de la caché: el HTML solo se parte si cambia (#89).
     fn html_parts(
         &self,
         id: &str,
@@ -611,54 +617,47 @@ impl PaperReader {
         let Ok(client) = crate::ui::client(cx) else {
             return Vec::new();
         };
-        let base = client.service_url().to_owned();
         let font_px = f32::from(body_size);
         let ex_px = font_px * full::EX_PER_FONT;
+        let chunks = self
+            .chunks
+            .borrow_mut()
+            .get(id, html, client.service_url(), font_px);
         let color = hex(p.text);
         let style = text_style(cx);
-        let mut out = Vec::new();
-        let mut n = 0;
-        for piece in split_pending(html) {
-            for part in full::parts(&piece.html, &base, font_px) {
-                n += 1;
-                match part {
-                    Part::Text(text) => {
-                        let text_id = SharedString::from(format!("{id}-{n}"));
-                        let formulas = self.formulas.clone();
-                        let color = color.clone();
-                        let view = TextView::html(text_id, code_in_pre(&text))
-                            .selectable(true)
-                            .style(style.clone())
-                            .image_source(move |uri: &SharedUri| {
-                                // Solo las fórmulas salen del registro; las
-                                // figuras de arXiv se bajan como cualquier
-                                // imagen (#88).
-                                if full::is_formula_url(uri) {
-                                    ImageSource::Image(formulas.image(uri, &color, ex_px))
-                                } else {
-                                    uri.clone().into()
-                                }
-                            });
-                        let view = if piece.pending || dimmed {
-                            view.text_color(p.text3)
-                        } else {
-                            view
-                        };
-                        out.push(
-                            div()
-                                .text_size(body_size)
-                                .line_height(relative(1.65))
-                                .child(view)
-                                .into_any_element(),
-                        );
-                    }
-                    Part::Block(formula) => {
-                        out.push(self.formula_block(&formula, &color, ex_px, p))
-                    }
+        chunks
+            .iter()
+            .map(|chunk| match chunk {
+                Chunk::Text { id, html, pending } => {
+                    let formulas = self.formulas.clone();
+                    let color = color.clone();
+                    let view = TextView::html(id.clone(), html.clone())
+                        .selectable(true)
+                        .style(style.clone())
+                        .image_source(move |uri: &SharedUri| {
+                            // Solo las fórmulas salen del registro; las
+                            // figuras de arXiv se bajan como cualquier
+                            // imagen (#88).
+                            if full::is_formula_url(uri) {
+                                ImageSource::Image(formulas.image(uri, &color, ex_px))
+                            } else {
+                                uri.clone().into()
+                            }
+                        });
+                    let view = if *pending || dimmed {
+                        view.text_color(p.text3)
+                    } else {
+                        view
+                    };
+                    div()
+                        .text_size(body_size)
+                        .line_height(relative(1.65))
+                        .child(view)
+                        .into_any_element()
                 }
-            }
-        }
-        out
+                Chunk::Block(formula) => self.formula_block(formula, &color, ex_px, p),
+            })
+            .collect()
     }
 
     /// Una fórmula aparte: su imagen centrada, con el número de la ecuación si lo tiene.
