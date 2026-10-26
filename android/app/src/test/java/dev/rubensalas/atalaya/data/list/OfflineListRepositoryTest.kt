@@ -2,6 +2,7 @@ package dev.rubensalas.atalaya.data.list
 
 import dev.rubensalas.atalaya.data.api.ApiException
 import dev.rubensalas.atalaya.data.api.AtalayaClient
+import dev.rubensalas.atalaya.data.api.Cleanup
 import dev.rubensalas.atalaya.data.api.Entry
 import dev.rubensalas.atalaya.data.api.EntryPage
 import dev.rubensalas.atalaya.data.api.EntryQuery
@@ -41,6 +42,7 @@ class OfflineListRepositoryTest {
     private class FakeService(private val client: () -> AtalayaClient) : Dispatcher() {
         val entries = linkedMapOf<Id, Entry>()
         val requests = mutableListOf<String>()
+        var cleanupResult = Cleanup(entries = 0, papers = 0, bytes = 0)
 
         override fun dispatch(request: RecordedRequest): MockResponse = synchronized(this) {
             val path = request.url.encodedPath
@@ -68,6 +70,8 @@ class OfflineListRepositoryTest {
                     val page = EntryPage(all.size.toLong(), all.drop(offset).take(limit))
                     MockResponse(body = json.encodeToString(EntryPage.serializer(), page))
                 }
+                path.matches(Regex("/api/entries/\\d+/translation")) -> MockResponse(code = 204)
+                path == "/api/translations/cleanup" -> MockResponse(body = json.encodeToString(Cleanup.serializer(), cleanupResult))
                 path.startsWith("/api/entries/") -> {
                     val id = path.substringAfterLast('/').toLong()
                     val e = entries[id] ?: return MockResponse(code = 404, body = """{"error":"no existe"}""")
@@ -153,6 +157,37 @@ class OfflineListRepositoryTest {
         service.entries[1] = service.entries[1]!!.copy(translation = TranslationState.Done, translatedContent = "<p>Hola</p>")
         assertFalse(repo.sync())
         assertEquals("<p>Hola</p>", dao.contents[1]!!.translatedContent)
+    }
+
+    @Test
+    fun deletingATranslationAlsoForgetsItsCopyOnThePhone() = runTest {
+        repo.sync()
+        repo.entry(3) // leído y abierto: su texto está en el móvil
+        assertTrue(dao.contents.containsKey(3L))
+        repo.deleteTranslation(3)
+        assertEquals("DELETE /api/entries/3/translation", service.requests.last())
+        assertFalse(dao.contents.containsKey(3L))
+    }
+
+    @Test
+    fun cleanupFreesTheTextOfReadArticlesThatAreNotSaved() = runTest {
+        repo.sync() // 2 está guardado y leído; 1 sin leer
+        repo.entry(3) // leído, no guardado, abierto
+        service.cleanupResult = Cleanup(entries = 1, papers = 0, bytes = 1_200)
+        assertEquals(Cleanup(1, 0, 1_200), repo.cleanupTranslations())
+        assertEquals("POST /api/translations/cleanup", service.requests.last())
+        assertFalse(dao.contents.containsKey(3L))
+        assertTrue(dao.contents.containsKey(2L))
+    }
+
+    @Test
+    fun cleanupWithoutNetworkKeepsTheLocalCopies() = runTest {
+        repo.sync()
+        repo.entry(3)
+        online = false
+        val e = runCatching { repo.cleanupTranslations() }.exceptionOrNull() as ApiException
+        assertNull(e.status)
+        assertTrue(dao.contents.containsKey(3L))
     }
 
     @Test

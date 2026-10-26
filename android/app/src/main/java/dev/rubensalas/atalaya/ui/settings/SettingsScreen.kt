@@ -32,6 +32,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,6 +59,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.rubensalas.atalaya.AppContainer
 import dev.rubensalas.atalaya.BuildConfig
 import dev.rubensalas.atalaya.data.api.ApiException
@@ -93,6 +98,18 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
     // Resultado de «Buscar actualizaciones» en esta pantalla. Null: todavía no se ha buscado.
     var updateCheck by remember { mutableStateOf<UpdateCheck?>(null) }
     var checking by remember { mutableStateOf(false) }
+    val cleanupVm: TranslationCleanupViewModel = viewModel(
+        factory = viewModelFactory { initializer { TranslationCleanupViewModel(container.list) } },
+    )
+    val cleanup by cleanupVm.state.collectAsStateWithLifecycle()
+    val snackbar = remember { SnackbarHostState() }
+
+    LaunchedEffect(cleanup.message) {
+        cleanup.message?.let {
+            snackbar.showSnackbar(it)
+            cleanupVm.dismissMessage()
+        }
+    }
 
     fun runUpdateCheck() {
         checking = true
@@ -147,6 +164,7 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
             }
         },
         containerColor = Atalaya.colors.bg,
+        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         val s = settings ?: return@Scaffold
         Column(
@@ -181,6 +199,14 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
             SectionHead("Lectura")
             SettingItem("Tamaño de letra", null, minHeight = 44)
             FontScaleSlider(s.fontScale) { scope.launch { repo.setFontScale(it) } }
+            Separator()
+
+            SectionHead("Traducciones")
+            SettingItem(
+                title = "Borrar traducciones de lo leído",
+                subtitle = if (cleanup.busy) "Buscando…" else "Libera espacio. Se vuelven a traducir si los abres",
+                onClick = { cleanupVm.request() },
+            )
             Separator()
 
             SectionHead("Gestos")
@@ -231,6 +257,16 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
                 dialog = null
             }
             null -> Unit
+        }
+
+        cleanup.preview?.let { preview ->
+            AlertDialog(
+                onDismissRequest = cleanupVm::dismiss,
+                title = { Text("Borrar traducciones") },
+                text = { Text(cleanupQuestion(preview)) },
+                confirmButton = { TextButton(onClick = cleanupVm::confirm) { Text("Borrar") } },
+                dismissButton = { TextButton(onClick = cleanupVm::dismiss) { Text("Cancelar") } },
+            )
         }
     }
 }

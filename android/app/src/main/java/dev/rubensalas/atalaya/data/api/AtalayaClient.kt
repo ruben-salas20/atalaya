@@ -127,6 +127,20 @@ class AtalayaClient(
     override suspend fun savePaper(arxivId: String): EntrySummary =
         decode(execute("POST", "api/papers", null) { addPathSegment(arxivId).addPathSegment("save") })
 
+    /** Borra la traducción del paper, texto completo incluido (#91). 409 si se está traduciendo. */
+    override suspend fun deletePaperTranslation(arxivId: String) {
+        execute("DELETE", "api/papers", null) { addPathSegment(arxivId).addPathSegment("translation") }
+    }
+
+    /** Borra la traducción de un artículo para volver a traducirlo (#91). 409 si se está traduciendo. */
+    suspend fun deleteEntryTranslation(id: Id) = sendNoContent("DELETE", "api/entries/$id/translation")
+
+    /** Lo que se borraría con «Borrar traducciones de lo leído» (#91). */
+    suspend fun translationCleanupPreview(): Cleanup = get("api/translations/cleanup")
+
+    /** Borra las traducciones de lo leído y responde lo que se borró (#91). */
+    suspend fun cleanupTranslations(): Cleanup = decode(execute("POST", "api/translations/cleanup", null) {})
+
     // -----------------------------------------------------------------------
 
     private inline fun <reified T> body(value: T): RequestBody =

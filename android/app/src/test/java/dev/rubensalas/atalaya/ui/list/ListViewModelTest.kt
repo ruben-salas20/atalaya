@@ -66,6 +66,10 @@ class ListViewModelTest {
             synced++
         }
 
+        override suspend fun deleteTranslation(id: Id) = throw UnsupportedOperationException()
+        override suspend fun translationCleanupPreview() = throw UnsupportedOperationException()
+        override suspend fun cleanupTranslations() = throw UnsupportedOperationException()
+
         var cache: EntryPage? = null
         override suspend fun cachedSidebar() = cache?.let { SIDEBAR }
         override suspend fun cachedEntries(query: EntryQuery) = cache

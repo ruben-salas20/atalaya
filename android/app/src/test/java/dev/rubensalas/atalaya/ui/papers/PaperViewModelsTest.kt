@@ -1,16 +1,25 @@
 package dev.rubensalas.atalaya.ui.papers
 
 import dev.rubensalas.atalaya.data.api.ApiException
+import dev.rubensalas.atalaya.data.api.Cleanup
+import dev.rubensalas.atalaya.data.api.Entry
+import dev.rubensalas.atalaya.data.api.EntryPage
+import dev.rubensalas.atalaya.data.api.EntryQuery
 import dev.rubensalas.atalaya.data.api.EntrySummary
+import dev.rubensalas.atalaya.data.api.EntryUpdate
 import dev.rubensalas.atalaya.data.api.FullPaper
 import dev.rubensalas.atalaya.data.api.FullPaperState
+import dev.rubensalas.atalaya.data.api.Id
+import dev.rubensalas.atalaya.data.api.MarkAllReadQuery
 import dev.rubensalas.atalaya.data.api.Paper
 import dev.rubensalas.atalaya.data.api.PaperField
 import dev.rubensalas.atalaya.data.api.PaperPage
 import dev.rubensalas.atalaya.data.api.PaperQuery
 import dev.rubensalas.atalaya.data.api.PaperSummary
 import dev.rubensalas.atalaya.data.api.QueryTranslation
+import dev.rubensalas.atalaya.data.api.Sidebar
 import dev.rubensalas.atalaya.data.api.TranslationState
+import dev.rubensalas.atalaya.data.list.ListRepository
 import dev.rubensalas.atalaya.data.papers.PapersApi
 import dev.rubensalas.atalaya.data.papers.PapersRepository
 import dev.rubensalas.atalaya.data.papers.RecentSearch
@@ -66,11 +75,39 @@ class PaperViewModelsTest {
 
         override suspend fun requestFullPaper(arxivId: String): FullPaper = FullPaper(FullPaperState.NotRequested)
 
+        val forgotten = mutableListOf<String>()
+        var failDelete: ApiException? = null
+
+        override suspend fun deletePaperTranslation(arxivId: String) {
+            failDelete?.let { throw it }
+            forgotten += arxivId
+        }
+
         override suspend fun savePaper(arxivId: String): EntrySummary {
             if (failSave) throw ApiException(null, "No se pudo conectar con el servicio")
             saves++
             return EntrySummary(99, 5, "Papers guardados", PAPER.title, PAPER.originalTitle, true, "en", PAPER.absUrl, PAPER.publishedAt, false, true)
         }
+    }
+
+    /** Solo cuenta las traducciones de artículos borradas: el resto no se usa en estas pruebas. */
+    private class FakeList : ListRepository {
+        val forgotten = mutableListOf<Id>()
+        var failDelete: ApiException? = null
+
+        override suspend fun deleteTranslation(id: Id) {
+            failDelete?.let { throw it }
+            forgotten += id
+        }
+
+        override suspend fun sidebar(): Sidebar = throw UnsupportedOperationException()
+        override suspend fun entries(query: EntryQuery): EntryPage = throw UnsupportedOperationException()
+        override suspend fun entry(id: Id): Entry = throw UnsupportedOperationException()
+        override suspend fun updateEntry(id: Id, update: EntryUpdate): EntrySummary = throw UnsupportedOperationException()
+        override suspend fun markAllRead(scope: MarkAllReadQuery) = throw UnsupportedOperationException()
+        override suspend fun markSynced() = throw UnsupportedOperationException()
+        override suspend fun translationCleanupPreview(): Cleanup = throw UnsupportedOperationException()
+        override suspend fun cleanupTranslations(): Cleanup = throw UnsupportedOperationException()
     }
 
     private class FakeRecents : RecentSearches {
@@ -88,6 +125,7 @@ class PaperViewModelsTest {
     private val api = FakeApi()
     private var savedCallbacks = 0
     private val repo = PapersRepository(api, onSaved = { savedCallbacks++ })
+    private val list = FakeList()
     private val recents = FakeRecents()
 
     @Before
@@ -153,7 +191,7 @@ class PaperViewModelsTest {
         runCurrent()
         assertNull(search.state.value.papers.single().savedEntryId)
 
-        val paper = PaperViewModel(PAPER.arxivId, repo, pollInterval = 3_000)
+        val paper = PaperViewModel(PAPER.arxivId, repo, list, pollInterval = 3_000)
         runCurrent()
         paper.save()
         runCurrent()
@@ -169,7 +207,7 @@ class PaperViewModelsTest {
     @Test
     fun saveFailureShowsMessage() = with(scope) {
         api.failSave = true
-        val vm = PaperViewModel(PAPER.arxivId, repo, pollInterval = 3_000)
+        val vm = PaperViewModel(PAPER.arxivId, repo, list, pollInterval = 3_000)
         runCurrent()
         vm.save()
         runCurrent()
@@ -178,11 +216,48 @@ class PaperViewModelsTest {
     }
 
     @Test
+    fun retranslateForgetsThePaperAndReloadsIt() = with(scope) {
+        val vm = PaperViewModel(PAPER.arxivId, repo, list, pollInterval = 3_000)
+        runCurrent()
+        api.papers += PAPER.copy(translation = TranslationState.Pending)
+        vm.retranslate()
+        runCurrent()
+        assertEquals(listOf(PAPER.arxivId), api.forgotten)
+        assertTrue(list.forgotten.isEmpty())
+        assertEquals(TranslationState.Pending, vm.state.value.paper!!.translation)
+        assertNull(vm.state.value.message)
+    }
+
+    @Test
+    fun retranslateAlsoForgetsTheSavedArticleCopy() = with(scope) {
+        api.papers += PAPER.copy(savedEntryId = 99)
+        val vm = PaperViewModel(PAPER.arxivId, repo, list, pollInterval = 3_000)
+        runCurrent()
+        vm.retranslate()
+        runCurrent()
+        assertEquals(listOf(PAPER.arxivId), api.forgotten)
+        assertEquals(listOf<Id>(99), list.forgotten)
+    }
+
+    @Test
+    fun retranslateConflictShowsMessageAndForgetsNothing() = with(scope) {
+        api.papers += PAPER.copy(savedEntryId = 99)
+        val vm = PaperViewModel(PAPER.arxivId, repo, list, pollInterval = 3_000)
+        runCurrent()
+        api.failDelete = ApiException(409, "Se está traduciendo")
+        vm.retranslate()
+        runCurrent()
+        assertTrue(api.forgotten.isEmpty())
+        assertTrue(list.forgotten.isEmpty())
+        assertEquals("Se está traduciendo", vm.state.value.message)
+    }
+
+    @Test
     fun pendingPaperPollsUntilSpanishArrives() = with(scope) {
         api.papers += PAPER
         api.papers += PAPER
         api.papers += PAPER.copy(translation = TranslationState.Done, translatedAbstract = "Primero.\n\nSegundo.", title = "Destilar")
-        val vm = PaperViewModel(PAPER.arxivId, repo, pollInterval = 3_000)
+        val vm = PaperViewModel(PAPER.arxivId, repo, list, pollInterval = 3_000)
         vm.setActive(true)
         runCurrent()
 
@@ -217,7 +292,7 @@ class PaperViewModelsTest {
             abstractHtml = "<p>Let <img class=\"atalaya-formula\" src=\"/formulas/2610.08812/r1.svg\" alt=\"y\"></p><p>Second.</p>",
             translatedAbstractHtml = "<p>Sea <img class=\"atalaya-formula\" src=\"/formulas/2610.08812/r1.svg\" alt=\"x\"></p><p>Segundo.</p>",
         )
-        val vm = PaperViewModel(PAPER.arxivId, repo, serviceUrl = { "https://svc.test" }, parseDispatcher = dispatcher, pollInterval = 3_000)
+        val vm = PaperViewModel(PAPER.arxivId, repo, list, serviceUrl = { "https://svc.test" }, parseDispatcher = dispatcher, pollInterval = 3_000)
         runCurrent()
 
         val spanish = vm.state.value.showingAbstractBlocks!!
@@ -236,7 +311,7 @@ class PaperViewModelsTest {
     @Test
     fun abstractWithoutHtmlStaysPlainText() = with(scope) {
         api.papers += PAPER.copy(translation = TranslationState.Done, translatedAbstract = "Primero.\n\nSegundo.")
-        val vm = PaperViewModel(PAPER.arxivId, repo, pollInterval = 3_000)
+        val vm = PaperViewModel(PAPER.arxivId, repo, list, pollInterval = 3_000)
         runCurrent()
 
         assertNull(vm.state.value.showingAbstractBlocks)

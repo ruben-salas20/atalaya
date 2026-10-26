@@ -3,6 +3,7 @@ package dev.rubensalas.atalaya.data.list
 import dev.rubensalas.atalaya.data.api.Entry
 import dev.rubensalas.atalaya.data.api.EntryPage
 import dev.rubensalas.atalaya.data.api.EntryQuery
+import dev.rubensalas.atalaya.data.api.Cleanup
 import dev.rubensalas.atalaya.data.api.EntrySummary
 import dev.rubensalas.atalaya.data.api.EntryUpdate
 import dev.rubensalas.atalaya.data.api.Id
@@ -41,5 +42,17 @@ interface ListRepository {
 
     /** Se llama cuando la lista y el menú llegaron bien (S2). */
     suspend fun markSynced()
+
+    /**
+     * Borra la traducción de un artículo en el servicio y su copia en el móvil,
+     * para que se vuelva a traducir (#91). Lanza [dev.rubensalas.atalaya.data.api.ApiException] si no se pudo.
+     */
+    suspend fun deleteTranslation(id: Id)
+
+    /** Lo que borraría «Borrar traducciones de lo leído», sin borrar nada (#91). */
+    suspend fun translationCleanupPreview(): Cleanup
+
+    /** Borra las traducciones de lo leído, en el servicio y en el móvil, y responde lo borrado (#91). */
+    suspend fun cleanupTranslations(): Cleanup
 }
 

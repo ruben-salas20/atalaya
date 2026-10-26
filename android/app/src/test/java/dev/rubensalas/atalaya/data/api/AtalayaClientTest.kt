@@ -281,4 +281,54 @@ class AtalayaClientTest {
         assertNull(slow.addFeed(NewFeed(feedUrl = "https://x/feed", categoryId = 1, crawler = true)))
         assertEquals("/api/feeds", server.takeRequest().url.encodedPath)
     }
+
+    @Test
+    fun deleteEntryTranslationSendsDeleteAndAcceptsNoContent() = runTest {
+        server.enqueue(MockResponse(code = 204))
+        client.deleteEntryTranslation(7)
+        val req = server.takeRequest()
+        assertEquals("DELETE", req.method)
+        assertEquals("/api/entries/7/translation", req.url.encodedPath)
+        assertEquals("Bearer secreta", req.headers["Authorization"])
+    }
+
+    @Test
+    fun deletePaperTranslationEncodesTheOldArxivIdSlash() = runTest {
+        server.enqueue(MockResponse(code = 204))
+        client.deletePaperTranslation("hep-th/9901001")
+        val req = server.takeRequest()
+        assertEquals("DELETE", req.method)
+        assertEquals("/api/papers/hep-th%2F9901001/translation", req.url.encodedPath)
+
+        server.enqueue(MockResponse(code = 204))
+        client.deletePaperTranslation("2610.08812")
+        assertEquals("/api/papers/2610.08812/translation", server.takeRequest().url.encodedPath)
+    }
+
+    @Test
+    fun conflictWhileTranslatingKeepsTheServiceMessage() = runTest {
+        server.enqueue(MockResponse(code = 409, body = """{"error":"se está traduciendo, prueba luego"}"""))
+        val e = runCatching { client.deleteEntryTranslation(7) }.exceptionOrNull() as ApiException
+        assertEquals(409, e.status)
+        assertEquals("Se está traduciendo, prueba luego", e.message)
+
+        server.enqueue(MockResponse(code = 409, body = """{"error":"se está traduciendo"}"""))
+        val paper = runCatching { client.deletePaperTranslation("2610.08812") }.exceptionOrNull() as ApiException
+        assertEquals(409, paper.status)
+    }
+
+    @Test
+    fun cleanupPreviewIsAGetAndCleanupIsAPost() = runTest {
+        server.enqueue(MockResponse(body = """{"entries":3,"papers":1,"bytes":1500000}"""))
+        assertEquals(Cleanup(3, 1, 1_500_000), client.translationCleanupPreview())
+        val get = server.takeRequest()
+        assertEquals("GET", get.method)
+        assertEquals("/api/translations/cleanup", get.url.encodedPath)
+
+        server.enqueue(MockResponse(body = """{"entries":2,"papers":0,"bytes":700000}"""))
+        assertEquals(Cleanup(2, 0, 700_000), client.cleanupTranslations())
+        val post = server.takeRequest()
+        assertEquals("POST", post.method)
+        assertEquals("/api/translations/cleanup", post.url.encodedPath)
+    }
 }

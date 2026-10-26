@@ -353,3 +353,14 @@ data class FullPaper(
     val html: String? = null,
     val progress: Progress? = null,
 )
+
+// ---------------------------------------------------------------------------
+// Traducciones guardadas (#91)
+// ---------------------------------------------------------------------------
+
+/**
+ * `GET /api/translations/cleanup` (lo que se borraría) y `POST` (lo que se borró):
+ * las traducciones guardadas de lo ya leído. [bytes] es aproximado.
+ */
+@Serializable
+data class Cleanup(val entries: Long, val papers: Long, val bytes: Long)
