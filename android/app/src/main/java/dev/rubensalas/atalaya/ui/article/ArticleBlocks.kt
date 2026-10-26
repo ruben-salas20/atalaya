@@ -52,6 +52,10 @@ import dev.rubensalas.atalaya.ui.theme.Atalaya
 /** Tamaño del texto corrido, en sp: sobre él se miden las fórmulas en ex. */
 private const val BODY_SP = 17f
 
+/** Tarjeta blanca de cada figura: margen interior y esquinas, en dp. */
+private val FIGURE_CARD_PADDING = 8.dp
+private val FIGURE_CARD_CORNER = 8.dp
+
 /** Ancho fijo de cada celda de tabla: así las columnas quedan alineadas entre filas (ADR 0010). */
 private val TABLE_CELL_WIDTH = 150.dp
 
@@ -114,16 +118,23 @@ fun ArticleBlock(block: Block, muted: Boolean, modifier: Modifier = Modifier) {
             Text(t.text, inlineContent = t.inline, fontSize = 17.sp, lineHeight = 27.sp, color = color)
         }
         is Block.Image -> Column(modifier.padding(bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            AsyncImage(
-                model = block.url,
-                contentDescription = block.alt.ifBlank { null },
-                contentScale = ContentScale.FillWidth,
-                modifier = Modifier
+            // Las figuras van sobre una tarjeta blanca: las transparentes con texto negro se ven también en tema oscuro.
+            Box(
+                Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(c.surface),
-            )
+                    .clip(RoundedCornerShape(FIGURE_CARD_CORNER))
+                    .background(Color.White)
+                    .padding(FIGURE_CARD_PADDING),
+            ) {
+                AsyncImage(
+                    model = block.url,
+                    contentDescription = block.alt.ifBlank { null },
+                    contentScale = ContentScale.FillWidth,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp),
+                )
+            }
             block.caption?.let {
                 val t = rich(it, 13f, c.text3)
                 Text(t.text, inlineContent = t.inline, fontSize = 13.sp, lineHeight = 18.sp, color = c.text3)
