@@ -17,7 +17,7 @@ use reqwest::Method;
 
 use super::{ApiClient, Result, check, read_json};
 
-fn entry_key(id: Id) -> String {
+pub(super) fn entry_key(id: Id) -> String {
     format!("entries/{id}")
 }
 
@@ -32,6 +32,62 @@ fn list_key(query: &EntryQuery) -> String {
         query.limit.unwrap_or(0),
     )
     .to_lowercase()
+}
+
+/// El id de arXiv sin versión de una dirección `arxiv.org/abs|pdf|html/…`,
+/// como `arxivIdFromUrl` de Android. `None` si no es de arXiv.
+pub fn arxiv_id_from_url(url: &str) -> Option<String> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    let rest = rest
+        .strip_prefix("www.")
+        .or_else(|| rest.strip_prefix("export."))
+        .unwrap_or(rest);
+    let rest = rest.strip_prefix("arxiv.org/")?;
+    let rest = ["abs/", "pdf/", "html/"]
+        .iter()
+        .find_map(|kind| rest.strip_prefix(kind))?;
+    let path = &rest[..rest.find(['?', '#']).unwrap_or(rest.len())];
+    let path = path.trim_end_matches('/');
+    let path = path.strip_suffix(".pdf").unwrap_or(path);
+    let id = without_version(path);
+    (is_new_id(id) || is_old_id(id)).then(|| id.to_owned())
+}
+
+/// Quita la versión final (`v2`), si la hay.
+fn without_version(id: &str) -> &str {
+    match id.rfind('v') {
+        Some(at) if at + 1 < id.len() && id[at + 1..].bytes().all(|b| b.is_ascii_digit()) => {
+            &id[..at]
+        }
+        _ => id,
+    }
+}
+
+/// `2610.08812`: año y mes de cuatro cifras, y un número de cuatro o cinco.
+fn is_new_id(id: &str) -> bool {
+    let Some((yymm, number)) = id.split_once('.') else {
+        return false;
+    };
+    yymm.len() == 4
+        && yymm.bytes().all(|b| b.is_ascii_digit())
+        && (4..=5).contains(&number.len())
+        && number.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// `hep-th/9901001` o `math.AG/0601001`: archivo, clase opcional y siete cifras.
+fn is_old_id(id: &str) -> bool {
+    let Some((archive, number)) = id.split_once('/') else {
+        return false;
+    };
+    let (name, class) = match archive.split_once('.') {
+        Some((name, class)) => (name, Some(class)),
+        None => (archive, None),
+    };
+    let name_ok = !name.is_empty() && name.bytes().all(|b| b.is_ascii_lowercase() || b == b'-');
+    let class_ok = class.is_none_or(|c| c.len() == 2 && c.bytes().all(|b| b.is_ascii_uppercase()));
+    name_ok && class_ok && number.len() == 7 && number.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// El texto de búsqueda, sin espacios y plegado, o `None` si no hay.
@@ -117,6 +173,10 @@ impl ApiClient {
             |mut entry: Entry| {
                 let queue = self.queue();
                 entry.summary = applied_by(&entry.summary, queue.get(&id));
+                // Una copia de antes de #90 no trae el id de arXiv: sale de la dirección.
+                entry.arxiv_id = entry
+                    .arxiv_id
+                    .or_else(|| arxiv_id_from_url(&entry.summary.url));
                 entry
             },
         )
@@ -639,6 +699,42 @@ mod tests {
         let copy = offline_client(&dir).entry(7).expect("sin red, de la copia");
 
         assert!(copy.summary.read);
+    }
+
+    #[test]
+    fn arxiv_id_comes_from_the_address() {
+        assert_eq!(
+            arxiv_id_from_url("https://arxiv.org/abs/2610.08812v2").as_deref(),
+            Some("2610.08812")
+        );
+        assert_eq!(
+            arxiv_id_from_url("http://arxiv.org/pdf/2610.08812.pdf").as_deref(),
+            Some("2610.08812")
+        );
+        assert_eq!(
+            arxiv_id_from_url("https://arxiv.org/html/1706.03762v7/").as_deref(),
+            Some("1706.03762")
+        );
+        assert_eq!(
+            arxiv_id_from_url("https://www.arxiv.org/abs/2610.08812?context=cs#abstract")
+                .as_deref(),
+            Some("2610.08812")
+        );
+        assert_eq!(
+            arxiv_id_from_url("https://arxiv.org/abs/hep-th/9901001").as_deref(),
+            Some("hep-th/9901001")
+        );
+        assert_eq!(
+            arxiv_id_from_url("https://arxiv.org/abs/math.AG/0601001v3").as_deref(),
+            Some("math.AG/0601001")
+        );
+        assert_eq!(
+            arxiv_id_from_url("https://example.com/abs/2610.08812"),
+            None
+        );
+        assert_eq!(arxiv_id_from_url("https://arxiv.org/list/cs.CL/new"), None);
+        assert_eq!(arxiv_id_from_url("https://arxiv.org/abs/2610"), None);
+        assert_eq!(arxiv_id_from_url("https://arxiv.org/abs/"), None);
     }
 
     /// Un artículo como lo da el servicio, con la traducción dada.

@@ -1,7 +1,9 @@
 //! Piezas de interfaz que se repiten, con las medidas de las maquetas.
 
+use std::rc::Rc;
+
 use gpui::{
-    Anchor, ClipboardItem, Div, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement,
+    Anchor, App, ClipboardItem, Div, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement,
     ParentElement, Pixels, Stateful, Styled, Svg, div, px, svg,
 };
 use gpui_component::button::{Button, ButtonVariants};
@@ -34,19 +36,36 @@ pub fn icon_button(id: impl Into<ElementId>, glyph: Icon, p: &Palette) -> Statef
         .child(icon(glyph, px(20.), p.text2))
 }
 
+/// Acción de un menú: lo que hace la opción al pulsarla.
+pub type MenuAction = Rc<dyn Fn(&mut App)>;
+
 /// Botón «⋮» del final de una barra, con las opciones que no tienen botón
-/// propio. Por ahora solo «Copiar enlace».
-pub fn more_menu(id: impl Into<ElementId>, url: String) -> impl IntoElement {
+/// propio: «Copiar enlace» y, si `retranslate` está, «Volver a traducir» (#91).
+pub fn more_menu(
+    id: impl Into<ElementId>,
+    url: String,
+    retranslate: Option<MenuAction>,
+) -> impl IntoElement {
     Button::new(id)
         .ghost()
         .icon(gpui_component::Icon::empty().path(Icon::More.path()))
         .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
             let url = url.clone();
-            menu.item(
+            let menu = menu.item(
                 PopupMenuItem::new("Copiar enlace").on_click(move |_, _, cx| {
                     cx.write_to_clipboard(ClipboardItem::new_string(url.clone()))
                 }),
-            )
+            );
+            match &retranslate {
+                Some(action) => {
+                    let action = action.clone();
+                    menu.item(
+                        PopupMenuItem::new("Volver a traducir")
+                            .on_click(move |_, _, cx| action(cx)),
+                    )
+                }
+                None => menu,
+            }
         })
 }
 

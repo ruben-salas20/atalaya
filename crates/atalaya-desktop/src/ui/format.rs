@@ -1,7 +1,44 @@
-//! Textos derivados de los datos: cuánto hace y etiqueta de idioma.
+//! Textos derivados de los datos: cuánto hace, etiqueta de idioma y los avisos
+//! de borrar traducciones (#91).
 
-use atalaya_api::Progress;
+use atalaya_api::{Cleanup, Progress};
 use chrono::{DateTime, Local, Utc};
+
+/// La pregunta antes de borrar las traducciones de lo leído: cuántas y cuánto
+/// espacio, en singular si es uno. Igual que en Android.
+pub fn cleanup_question(cleanup: Cleanup) -> String {
+    let entries = if cleanup.entries == 1 {
+        "1 artículo leído".to_owned()
+    } else {
+        format!("{} artículos leídos", cleanup.entries)
+    };
+    let papers = if cleanup.papers == 1 {
+        "1 paper".to_owned()
+    } else {
+        format!("{} papers", cleanup.papers)
+    };
+    format!(
+        "Se borrarán las traducciones de {entries} y {papers} ({}). \
+         Se vuelven a traducir si los abres. No se borra nada de Miniflux ni de Guardados.",
+        megabytes(cleanup.bytes)
+    )
+}
+
+/// El aviso tras borrar: cuánto se liberó.
+pub fn freed_text(cleanup: Cleanup) -> String {
+    format!("Liberados {}", megabytes(cleanup.bytes))
+}
+
+/// El aviso cuando no hay nada que borrar.
+pub const NOTHING_TO_CLEAN: &str = "No hay traducciones de lo leído que borrar";
+
+/// Bytes en megabytes (1 MB = 1.000.000 bytes), con un decimal y coma: «2,5 MB».
+pub fn megabytes(bytes: u64) -> String {
+    format!(
+        "{} MB",
+        format!("{:.1}", bytes as f64 / 1_000_000.0).replace('.', ",")
+    )
+}
 
 /// La marca que pone el servicio alrededor de cada párrafo que aún no está
 /// traducido (ADR 0015).
@@ -270,5 +307,57 @@ mod tests {
         assert_eq!(lang_badge(Some("en")).as_deref(), Some("EN"));
         assert_eq!(lang_badge(Some("es")), None);
         assert_eq!(lang_badge(None), None);
+    }
+
+    #[test]
+    fn megabytes_use_a_decimal_comma_and_a_million_bytes() {
+        assert_eq!(megabytes(0), "0,0 MB");
+        assert_eq!(megabytes(2_500_000), "2,5 MB");
+        assert_eq!(megabytes(12_345_678), "12,3 MB");
+        assert_eq!(megabytes(1_000_000), "1,0 MB");
+    }
+
+    #[test]
+    fn the_question_is_singular_for_one() {
+        let question = cleanup_question(Cleanup {
+            entries: 1,
+            papers: 1,
+            bytes: 1_500_000,
+        });
+        assert_eq!(
+            question,
+            "Se borrarán las traducciones de 1 artículo leído y 1 paper (1,5 MB). \
+             Se vuelven a traducir si los abres. No se borra nada de Miniflux ni de Guardados."
+        );
+    }
+
+    #[test]
+    fn the_question_is_plural_otherwise() {
+        let question = cleanup_question(Cleanup {
+            entries: 3,
+            papers: 0,
+            bytes: 0,
+        });
+        assert_eq!(
+            question,
+            "Se borrarán las traducciones de 3 artículos leídos y 0 papers (0,0 MB). \
+             Se vuelven a traducir si los abres. No se borra nada de Miniflux ni de Guardados."
+        );
+    }
+
+    #[test]
+    fn the_freed_space_and_the_empty_case_are_said_plainly() {
+        assert_eq!(
+            freed_text(Cleanup {
+                entries: 2,
+                papers: 1,
+                bytes: 4_200_000,
+            }),
+            "Liberados 4,2 MB"
+        );
+        assert_eq!(
+            NOTHING_TO_CLEAN,
+            "No hay traducciones de lo leído que borrar"
+        );
     }
 }

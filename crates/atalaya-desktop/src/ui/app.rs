@@ -60,13 +60,13 @@ impl AppView {
         let initial = Source::View(View::Unread);
         let sidebar = cx.new(|cx| Sidebar::new(initial.clone(), cx));
         let entry_list = cx.new(|cx| EntryList::new(initial, cx));
-        let reader = cx.new(|_| Reader::default());
+        let reader = cx.new(Reader::new);
         let feeds = cx.new(|cx| FeedsScreen::new(window, cx));
         let updates = cx.new(Updates::new);
         let update_banner = cx.new(|cx| UpdateBanner::new(updates.clone(), cx));
         let settings = cx.new(|cx| SettingsScreen::new(window, cx, updates));
         let paper_search = cx.new(|cx| PaperSearch::new(window, cx));
-        let paper_reader = cx.new(|_| PaperReader::default());
+        let paper_reader = cx.new(PaperReader::new);
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
 

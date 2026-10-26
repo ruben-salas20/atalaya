@@ -7,14 +7,15 @@
 //! «Español» / «Original» y los botones de leído, guardar y abrir en el
 //! navegador. En el PC no hay deslizamientos (L4): eso es del móvil.
 
+use std::rc::Rc;
 use std::time::Duration;
 
 use atalaya_api::{Entry, EntrySummary, EntryUpdate, Id, Progress, TranslationState};
 use chrono::Utc;
 use gpui::prelude::*;
 use gpui::{
-    Animation, AnimationExt, Context, ElementId, EventEmitter, FontWeight, Pixels, SharedString,
-    Task, Window, div, px, relative,
+    Animation, AnimationExt, App, Context, ElementId, Entity, EventEmitter, FontWeight, Pixels,
+    SharedString, Task, Window, div, px, relative,
 };
 use gpui_component::scroll::ScrollableElement;
 use gpui_component::text::TextView;
@@ -23,10 +24,11 @@ use gpui_component::tooltip::Tooltip;
 use crate::assets::Icon;
 use crate::palette::Palette;
 use crate::ui::format::{ago_phrase, code_in_pre, progress_fraction, progress_text, split_pending};
-use crate::ui::widgets::{bar, icon, icon_button, more_menu};
+use crate::ui::fulltext::FullText;
+use crate::ui::widgets::{MenuAction, bar, icon, icon_button, more_menu};
 
-/// Cada cuánto se vuelve a pedir un artículo que se está traduciendo.
-const POLL_EVERY: Duration = Duration::from_secs(3);
+/// Cada cuánto se vuelve a pedir un artículo o un paper que se está traduciendo.
+pub const POLL_EVERY: Duration = Duration::from_secs(3);
 
 pub enum ReaderEvent {
     /// Cambió leído o guardado: la lista y el menú deben reflejarlo.
@@ -62,26 +64,27 @@ pub struct Reader {
     load: Load,
     /// Lo que eligió el selector. Solo cuenta si hay traducción.
     lang: Lang,
-    /// Fallo al marcar leído o guardado, que se enseña bajo la barra.
+    /// Fallo al marcar leído o guardar, que se enseña bajo la barra.
     action_error: Option<String>,
     _fetch: Task<()>,
+    /// El texto completo, si el artículo es un paper de arXiv (#90).
+    full_text: Entity<FullText>,
 }
 
 impl EventEmitter<ReaderEvent> for Reader {}
 
-impl Default for Reader {
-    fn default() -> Self {
+impl Reader {
+    pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             summary: None,
             load: Load::Loading,
             lang: Lang::Spanish,
             action_error: None,
             _fetch: Task::ready(()),
+            full_text: cx.new(|_| FullText::default()),
         }
     }
-}
 
-impl Reader {
     pub fn show(&mut self, entry: EntrySummary, cx: &mut Context<Self>) {
         let id = entry.id;
         let unread = !entry.read;
@@ -89,6 +92,7 @@ impl Reader {
         self.load = Load::Loading;
         self.lang = Lang::Spanish;
         self.action_error = None;
+        self.full_text.update(cx, |full, cx| full.open(None, cx));
         self.fetch(id, Duration::ZERO, cx);
         // Abrir marca como leído; el botón de la barra sirve para deshacerlo.
         // Sin red se guarda el cambio y se manda al volver la red.
@@ -116,6 +120,7 @@ impl Reader {
         self.summary = None;
         self.load = Load::Loading;
         self._fetch = Task::ready(());
+        self.full_text.update(cx, |full, cx| full.open(None, cx));
         cx.notify();
     }
 
@@ -145,6 +150,10 @@ impl Reader {
                         }
                         // El título puede llegar traducido después de la lista.
                         this.summary = Some(entry.summary.clone());
+                        // Un paper de arXiv ofrece su texto completo (#90).
+                        let arxiv_id = entry.arxiv_id.clone();
+                        this.full_text
+                            .update(cx, |full, cx| full.ensure(arxiv_id, cx));
                         this.load = Load::Ready(Box::new(entry));
                     }
                     // Un fallo al repetir no borra lo que ya se ve.
@@ -213,6 +222,57 @@ impl Reader {
             .ok();
         })
         .detach();
+    }
+
+    /// «Volver a traducir» (#91): borra la traducción del artículo y, si es un
+    /// paper de arXiv, la de su paper, y vuelve a pedir el artículo. Con un
+    /// 409 (se está traduciendo) no borra nada y lo dice.
+    fn retranslate(&mut self, cx: &mut Context<Self>) {
+        let Load::Ready(entry) = &self.load else {
+            return;
+        };
+        let id = entry.summary.id;
+        let arxiv_id = entry.arxiv_id.clone();
+        let client = match super::client(cx) {
+            Ok(client) => client,
+            Err(error) => {
+                self.action_error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
+        self.action_error = None;
+        cx.spawn(async move |this, cx| {
+            let paper = arxiv_id.clone();
+            let forgotten = cx
+                .background_spawn(
+                    async move { client.forget_translations(Some(id), paper.as_deref()) },
+                )
+                .await;
+            this.update(cx, |this, cx| {
+                if this.summary.as_ref().map(|s| s.id) != Some(id) {
+                    return;
+                }
+                // Lo que ya se borró se vuelve a pedir, aunque otra cosa haya fallado.
+                if forgotten.entry || forgotten.paper {
+                    this.fetch(id, Duration::ZERO, cx);
+                    this.full_text
+                        .update(cx, |full, cx| full.open(arxiv_id, cx));
+                }
+                this.action_error = forgotten.error;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// La opción «Volver a traducir» del menú, que vuelve a este lector.
+    fn retranslate_action(cx: &mut Context<Self>) -> MenuAction {
+        let reader = cx.weak_entity();
+        Rc::new(move |cx: &mut App| {
+            reader.update(cx, |reader, cx| reader.retranslate(cx)).ok();
+        })
     }
 
     fn set_summary(&mut self, summary: EntrySummary, cx: &mut Context<Self>) {
@@ -307,7 +367,7 @@ impl Reader {
                         move |_, _, cx| cx.open_url(&url)
                     }),
             )
-            .child(more_menu("more", url))
+            .child(more_menu("more", url, Some(Self::retranslate_action(cx))))
     }
 
     fn segment(
@@ -479,7 +539,9 @@ impl Reader {
                         .px(px(32.))
                         .child(header)
                         .children(note)
-                        .child(body),
+                        .child(body)
+                        // Vacío si el artículo no es un paper de arXiv.
+                        .child(self.full_text.clone()),
                 ),
             )
             .overflow_y_scrollbar()

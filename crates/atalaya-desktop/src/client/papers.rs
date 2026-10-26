@@ -53,7 +53,7 @@ impl ApiClient {
 
 /// Los identificadores antiguos llevan una barra (`hep-th/9901001`), que en
 /// la ruta va codificada.
-fn path_id(arxiv_id: &str) -> String {
+pub(super) fn path_id(arxiv_id: &str) -> String {
     arxiv_id.replace('/', "%2F")
 }
 
