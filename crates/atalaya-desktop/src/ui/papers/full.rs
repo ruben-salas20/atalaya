@@ -94,6 +94,11 @@ pub fn parts(html: &str, base: &str, font_px: f32) -> Vec<Part> {
     parts
 }
 
+/// Si la dirección es la de una fórmula del servicio (`…/formulas/<id>/<n>.svg`).
+pub fn is_formula_url(url: &str) -> bool {
+    url.contains("/formulas/") && url.ends_with(".svg")
+}
+
 /// Las direcciones de las fórmulas que trae el HTML, completas.
 pub fn formula_urls(html: &str, base: &str) -> Vec<String> {
     let mut urls = Vec::new();
@@ -427,6 +432,18 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("</span>\u{a0}bits</p>"), "{text}");
+    }
+
+    #[test]
+    fn only_service_formulas_use_the_formula_registry() {
+        assert!(is_formula_url("http://ai-lab:8080/formulas/2610.1/3.svg"));
+        assert!(is_formula_url("http://ai-lab:8080/formulas/2610.1/r0.svg"));
+        assert!(!is_formula_url(
+            "https://arxiv.org/html/2610.31646v1/fig_design.png"
+        ));
+        assert!(!is_formula_url(
+            "https://arxiv.org/html/2610.31710v1/fig1.svg"
+        ));
     }
 
     #[test]
