@@ -172,7 +172,7 @@ pub fn html(
         out.push_str("<p>");
         for piece in pieces(paragraph.trim()) {
             match piece {
-                Piece::Text(t) => out.push_str(&escape(t)),
+                Piece::Text(t) => out.push_str(&escape(&t.replace("---", "—").replace("--", "–"))),
                 Piece::Math { latex, display } => {
                     let index = if same_count {
                         Some(k)
@@ -237,6 +237,22 @@ pub fn svg_from_stored(svg: String) -> Svg {
         vertical_align,
         svg,
     }
+}
+
+/// Los guiones de TeX fuera de las fórmulas: `---` es una raya (—) y `--`
+/// un guion medio (–). arXiv deja el resumen como lo escribió el autor.
+pub fn tex_dashes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for piece in pieces(text) {
+        match piece {
+            Piece::Text(t) => out.push_str(&t.replace("---", "—").replace("--", "–")),
+            Piece::Math { latex, display } => {
+                let d = if display { "$$" } else { "$" };
+                out.push_str(&format!("{d}{latex}{d}"));
+            }
+        }
+    }
+    out
 }
 
 fn escape(s: &str) -> String {
@@ -314,6 +330,14 @@ mod tests {
         // Una traducción antigua con el LaTeX cambiado usa la fórmula del original.
         let changed = html("x $a2$ y $\\bad$", &original, &svgs, |k| format!("r{k}"));
         assert!(changed.contains("src=\"r0\""), "{changed}");
+    }
+
+    #[test]
+    fn guiones_de_tex_fuera_de_las_formulas() {
+        assert_eq!(
+            tex_dashes("bar---independent, 1--2 and $a--b$"),
+            "bar—independent, 1–2 and $a--b$"
+        );
     }
 
     #[test]
