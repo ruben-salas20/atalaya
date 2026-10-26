@@ -72,9 +72,12 @@ class TranslationCleanupViewModel(private val list: ListRepository) : ViewModel(
 }
 
 /** La pregunta de la confirmación: cuántas traducciones y cuánto espacio. */
-fun cleanupQuestion(c: Cleanup): String =
-    "Se borrarán las traducciones de ${c.entries} artículos leídos y ${c.papers} papers (${megabytesText(c.bytes)}). " +
+fun cleanupQuestion(c: Cleanup): String {
+    val entries = if (c.entries == 1L) "1 artículo leído" else "${c.entries} artículos leídos"
+    val papers = if (c.papers == 1L) "1 paper" else "${c.papers} papers"
+    return "Se borrarán las traducciones de $entries y $papers (${megabytesText(c.bytes)}). " +
         "Se vuelven a traducir si los abres. No se borra nada de Miniflux ni de Guardados."
+}
 
 /** «12,3 MB»: los bytes en megabytes, con un decimal y coma, como se escribe en español. */
 fun megabytesText(bytes: Long): String =

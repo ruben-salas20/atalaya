@@ -146,6 +146,11 @@ class TranslationCleanupViewModelTest {
                 "Se vuelven a traducir si los abres. No se borra nada de Miniflux ni de Guardados.",
             cleanupQuestion(Cleanup(entries = 3, papers = 2, bytes = 1_500_000)),
         )
+        assertEquals(
+            "Se borrarán las traducciones de 1 artículo leído y 1 paper (0,1 MB). " +
+                "Se vuelven a traducir si los abres. No se borra nada de Miniflux ni de Guardados.",
+            cleanupQuestion(Cleanup(entries = 1, papers = 1, bytes = 100_000)),
+        )
     }
 
     @Test
