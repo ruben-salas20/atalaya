@@ -118,6 +118,22 @@ class FormulasAndTablesTest {
     }
 
     @Test
+    fun figureIsImageAndFormulaInsideItStaysAFormula() {
+        // Lo que decide la tarjeta blanca: una figura es Block.Image y una fórmula dentro de un <figure> no la usa.
+        val blocks = parseArticleHtml(
+            """<figure><img class="atalaya-formula atalaya-formula-bloque" alt="a+b" src="/formulas/a/9.svg" style="width: 8ex; height: 3ex; vertical-align: -1ex"><img src="https://x/fig.png" alt="Grafico"></figure>""",
+            SERVICE,
+        )
+        assertEquals(listOf(Block.Image("https://x/fig.png", "Grafico")), blocks.filterIsInstance<Block.Image>())
+    }
+
+    @Test
+    fun inlineFormulaIsNeverAnImageBlock() {
+        val blocks = parseArticleHtml("""<p>x $INLINE_FORMULA</p>""", SERVICE)
+        assertTrue(blocks.none { it is Block.Image })
+    }
+
+    @Test
     fun tableCaptionComesBeforeTheTable() {
         val blocks = parseArticleHtml(
             """<figure class="ltx_table"><figcaption>Tabla 1: resultados</figcaption><table><tr><td>a</td></tr></table></figure>""",
