@@ -1,11 +1,12 @@
 # Publica una versión de las apps en GitHub Releases (ADR 0012).
 #
 # - Al subir una etiqueta vX.Y.Z: compila el APK firmado y el binario del PC
-#   y crea la Release, con las novedades del mensaje de la etiqueta.
+#   y crea la Release, con las novedades del mensaje de la etiqueta. El número
+#   de versión sale de la etiqueta (#62): se escribe en Cargo.toml antes de
+#   compilar, sin cambiar main. Una etiqueta con sufijo (v0.2.0-prueba1) crea
+#   una versión de prueba, que las apps no ven como la última.
 # - Siempre construye la imagen del servicio; en main y en las etiquetas la
 #   sube a ghcr.io/ruben-salas20/atalaya-server (#57).
-#   Una etiqueta con sufijo (v0.2.0-prueba1) crea una versión de prueba, que
-#   las apps no ven como la última.
 # - En cada cambio de main, a mano (workflow_dispatch) o en un PR que cambie
 #   este archivo: solo compila. Comprueba que main compila y deja guardadas
 #   las dependencias ya compiladas, que las etiquetas reutilizan. Los
@@ -32,24 +33,29 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - id: v
-        name: Comprobar que la etiqueta coincide con Cargo.toml
+        name: Versión de la etiqueta, o la de Cargo.toml sin etiqueta
         run: |
-          version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             tag=${GITHUB_REF_NAME#v}
-            if [[ "${tag%%-*}" != "$version" ]]; then
-              echo "::error::La etiqueta $GITHUB_REF_NAME no coincide con la versión $version de Cargo.toml"
+            version=${tag%%-*}
+            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::La etiqueta $GITHUB_REF_NAME no es vX.Y.Z"
               exit 1
             fi
             [[ "$tag" == *-* ]] && echo "prerelease=true" >> "$GITHUB_OUTPUT" || echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
           fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
   android:
     needs: version
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - name: Poner la versión de la etiqueta
+        if: github.ref_type == 'tag'
+        run: scripts/poner-version.sh "${{ needs.version.outputs.version }}"
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -88,6 +94,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - name: Poner la versión de la etiqueta
+        if: github.ref_type == 'tag'
+        run: scripts/poner-version.sh "${{ needs.version.outputs.version }}"
       - name: Bibliotecas del sistema para GPUI
         run: |
           sudo apt-get update -q
@@ -115,6 +124,9 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v7
+      - name: Poner la versión de la etiqueta
+        if: github.ref_type == 'tag'
+        run: scripts/poner-version.sh "${{ needs.version.outputs.version }}"
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
