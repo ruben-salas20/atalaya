@@ -40,6 +40,10 @@ data class PaperUiState(
     val fullBlocks: List<Block> = emptyList(),
     /** Se acaba de pedir el paper completo y el servicio aún no contestó. */
     val requestingFull: Boolean = false,
+    /** El resumen original en bloques, si el servicio mandó HTML con fórmulas (#80). */
+    val originalAbstractBlocks: List<Block> = emptyList(),
+    /** Lo mismo para la traducción. */
+    val translatedAbstractBlocks: List<Block> = emptyList(),
 ) {
     val translating: Boolean get() = paper?.translation == TranslationState.Pending
 
@@ -71,6 +75,13 @@ data class PaperUiState(
 
     val paragraphs: List<String>
         get() = abstractParagraphs((if (showing == ArticleVersion.Spanish) translated else paper?.abstractText).orEmpty())
+
+    /**
+     * Los bloques del resumen que se ven, con sus fórmulas. Null si el servicio
+     * no mandó HTML para esa versión: entonces se pinta [paragraphs], como antes.
+     */
+    val showingAbstractBlocks: List<Block>?
+        get() = (if (showing == ArticleVersion.Spanish) translatedAbstractBlocks else originalAbstractBlocks).takeIf { it.isNotEmpty() }
 }
 
 /**
@@ -157,14 +168,31 @@ class PaperViewModel(
 
     fun dismissMessage() = _state.update { it.copy(message = null) }
 
-    private fun apply(fresh: Paper) {
+    private suspend fun apply(fresh: Paper) {
+        val before = _state.value
+        val base = serviceUrl()
+        // Como el paper completo: el HTML del resumen se vuelve a leer solo si cambió (ADR 0015).
+        val original = if (fresh.abstractHtml == before.paper?.abstractHtml) before.originalAbstractBlocks
+        else parseAbstract(fresh.abstractHtml, base)
+        val translated = if (fresh.translatedAbstractHtml == before.paper?.translatedAbstractHtml) before.translatedAbstractBlocks
+        else parseAbstract(fresh.translatedAbstractHtml, base)
         _state.update { s ->
             // Guardado lo manda la app: el servicio puede no saberlo aún si se guardó en esta vuelta.
             val savedId = s.paper?.savedEntryId ?: repo.saved.value[arxivId] ?: fresh.savedEntryId
-            s.copy(paper = fresh.copy(savedEntryId = savedId), loading = false, error = null)
+            s.copy(
+                paper = fresh.copy(savedEntryId = savedId),
+                loading = false,
+                error = null,
+                originalAbstractBlocks = original,
+                translatedAbstractBlocks = translated,
+            )
         }
         startPolling()
     }
+
+    /** Los bloques de un resumen en HTML, con las fórmulas resueltas contra el servicio. Sin HTML, ninguno. */
+    private suspend fun parseAbstract(html: String?, base: String): List<Block> =
+        if (html.isNullOrBlank()) emptyList() else withContext(parseDispatcher) { parseArticleHtml(html, base) }
 
     /** Estado del paper completo. Sin red o sin respuesta, se vuelve a probar en la siguiente vuelta. */
     private suspend fun refreshFull() {

@@ -17,6 +17,8 @@ import dev.rubensalas.atalaya.data.papers.RecentSearch
 import dev.rubensalas.atalaya.data.papers.RecentSearches
 import dev.rubensalas.atalaya.data.papers.addRecent
 import dev.rubensalas.atalaya.ui.article.ArticleVersion
+import dev.rubensalas.atalaya.ui.article.Block
+import dev.rubensalas.atalaya.ui.article.SpanStyleKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -204,6 +206,43 @@ class PaperViewModelsTest {
 
         vm.choose(ArticleVersion.Original)
         assertEquals(PAPER.originalTitle, vm.state.value.title)
+        assertEquals(listOf("First."), vm.state.value.paragraphs)
+    }
+
+    @Test
+    fun abstractWithFormulasIsShownAsBlocksInEachVersion() = with(scope) {
+        api.papers += PAPER.copy(
+            translation = TranslationState.Done,
+            translatedAbstract = "Sea x.\n\nSegundo.",
+            abstractHtml = "<p>Let <img class=\"atalaya-formula\" src=\"/formulas/2610.08812/r1.svg\" alt=\"y\"></p><p>Second.</p>",
+            translatedAbstractHtml = "<p>Sea <img class=\"atalaya-formula\" src=\"/formulas/2610.08812/r1.svg\" alt=\"x\"></p><p>Segundo.</p>",
+        )
+        val vm = PaperViewModel(PAPER.arxivId, repo, serviceUrl = { "https://svc.test" }, parseDispatcher = dispatcher, pollInterval = 3_000)
+        runCurrent()
+
+        val spanish = vm.state.value.showingAbstractBlocks!!
+        assertEquals(2, spanish.size)
+        val formula = (spanish[0] as Block.Paragraph).text.spans.single { it.style is SpanStyleKind.Formula }.style as SpanStyleKind.Formula
+        assertEquals("https://svc.test/formulas/2610.08812/r1.svg", formula.url)
+        assertEquals("x", formula.latex)
+
+        vm.choose(ArticleVersion.Original)
+        val original = vm.state.value.showingAbstractBlocks!!
+        assertEquals(2, original.size)
+        val originalFormula = (original[0] as Block.Paragraph).text.spans.single { it.style is SpanStyleKind.Formula }.style as SpanStyleKind.Formula
+        assertEquals("y", originalFormula.latex)
+    }
+
+    @Test
+    fun abstractWithoutHtmlStaysPlainText() = with(scope) {
+        api.papers += PAPER.copy(translation = TranslationState.Done, translatedAbstract = "Primero.\n\nSegundo.")
+        val vm = PaperViewModel(PAPER.arxivId, repo, pollInterval = 3_000)
+        runCurrent()
+
+        assertNull(vm.state.value.showingAbstractBlocks)
+        assertEquals(listOf("Primero.", "Segundo."), vm.state.value.paragraphs)
+        vm.choose(ArticleVersion.Original)
+        assertNull(vm.state.value.showingAbstractBlocks)
         assertEquals(listOf("First."), vm.state.value.paragraphs)
     }
 
