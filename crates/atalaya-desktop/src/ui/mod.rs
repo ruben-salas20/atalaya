@@ -25,6 +25,7 @@ pub mod papers;
 pub mod reader;
 pub mod settings;
 pub mod sidebar;
+pub mod smooth_scroll;
 pub mod updates;
 pub mod widgets;
 

@@ -13,6 +13,9 @@ publish.workspace = true
 atalaya-api.workspace = true
 chrono.workspace = true
 futures = "0.3"
+# Componer las figuras sobre blanco (#100). Ya está en el árbol por GPUI; aquí
+# solo PNG y JPEG, que son lo que llevan los papers.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 gpui = { package = "gpui-pre", version = "=0.3.9" }
 gpui-component = "=0.8.0"
 # El lector de papers usa el `TextView` de gpui-base directamente: solo él
