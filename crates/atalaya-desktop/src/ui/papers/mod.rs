@@ -5,10 +5,7 @@
 //! - `recent.rs`: las búsquedas recientes, en un archivo de este PC.
 //! - `format.rs`: autores, fechas y etiquetas, como en Android.
 
-mod chunks;
 mod format;
-pub mod formulas;
-pub mod full;
 pub mod reader;
 mod recent;
 pub mod search;
