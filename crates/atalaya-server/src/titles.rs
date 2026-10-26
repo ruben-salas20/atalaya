@@ -19,13 +19,17 @@
 //! a que termine el párrafo en curso, no el artículo entero.
 
 use std::{
-    sync::Mutex,
+    collections::VecDeque,
+    sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
 use atalaya_api::Id;
 use serde::Deserialize;
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 
 use crate::{
     content::{self, SegmentJob},
@@ -86,14 +90,13 @@ pub struct TitleJob {
 
 struct Receivers {
     urgent: mpsc::UnboundedReceiver<TitleJob>,
-    content: mpsc::UnboundedReceiver<SegmentJob>,
     backlog: mpsc::UnboundedReceiver<TitleJob>,
 }
 
 /// Las colas de lo que hay que traducir: dos de títulos y una de párrafos.
 pub struct Queue {
     urgent: mpsc::UnboundedSender<TitleJob>,
-    content: mpsc::UnboundedSender<SegmentJob>,
+    content: ContentQueue,
     backlog: mpsc::UnboundedSender<TitleJob>,
     /// Los extremos de lectura, hasta que [`Translations::start`] los toma.
     receivers: Mutex<Option<Receivers>>,
@@ -102,17 +105,73 @@ pub struct Queue {
 impl Queue {
     pub fn new() -> Self {
         let (urgent, urgent_rx) = mpsc::unbounded_channel();
-        let (content, content_rx) = mpsc::unbounded_channel();
         let (backlog, backlog_rx) = mpsc::unbounded_channel();
         Self {
             urgent,
-            content,
+            content: ContentQueue::default(),
             backlog,
             receivers: Mutex::new(Some(Receivers {
                 urgent: urgent_rx,
-                content: content_rx,
                 backlog: backlog_rx,
             })),
+        }
+    }
+}
+
+/// Párrafos por traducir, agrupados por artículo (ADR 0015). Sale primero el
+/// artículo pedido más recientemente; dentro de él, de arriba abajo.
+#[derive(Default)]
+pub struct ContentQueue {
+    articles: Mutex<Vec<ArticleJobs>>,
+    /// Avisa al trabajador de que hay párrafos. Si no espera nadie, guarda el
+    /// aviso para la próxima vez: no se pierde.
+    ready: Notify,
+    clock: AtomicU64,
+}
+
+struct ArticleJobs {
+    entry_id: Id,
+    /// Cuándo se pidió por última vez: más alto, antes sale.
+    touched: u64,
+    jobs: VecDeque<SegmentJob>,
+}
+
+impl ContentQueue {
+    fn push(&self, job: SegmentJob) {
+        let now = self.clock.fetch_add(1, Ordering::Relaxed) + 1;
+        let mut articles = self.articles.lock().unwrap_or_else(|e| e.into_inner());
+        match articles.iter_mut().find(|a| a.entry_id == job.entry_id) {
+            Some(article) => article.jobs.push_back(job),
+            None => articles.push(ArticleJobs {
+                entry_id: job.entry_id,
+                touched: now,
+                jobs: VecDeque::from([job]),
+            }),
+        }
+        drop(articles);
+        self.ready.notify_one();
+    }
+
+    /// El artículo se acaba de pedir: sus párrafos pasan delante.
+    fn touch(&self, entry_id: Id) {
+        let now = self.clock.fetch_add(1, Ordering::Relaxed) + 1;
+        let mut articles = self.articles.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(article) = articles.iter_mut().find(|a| a.entry_id == entry_id) {
+            article.touched = now;
+        }
+    }
+
+    /// El siguiente párrafo que toca. Descarta los de artículos abandonados.
+    fn pop(&self) -> Option<SegmentJob> {
+        let mut articles = self.articles.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            articles.retain(|a| !a.jobs.is_empty());
+            let next = articles.iter_mut().max_by_key(|a| a.touched)?;
+            let job = next.jobs.pop_front()?;
+            // El artículo ya falló o se abandonó: no gastar GPU en él.
+            if !job.reply.is_closed() {
+                return Some(job);
+            }
         }
     }
 }
@@ -194,9 +253,13 @@ impl Translations {
     /// Pone un párrafo del texto completo en cola. La respuesta llega por
     /// `job.reply`.
     pub(crate) fn queue_segment(&self, job: SegmentJob) {
-        // Solo falla si el trabajador terminó, y no termina nunca. Si pasara,
-        // `reply` se suelta y quien espera recibe un error.
-        let _ = self.queue().content.send(job);
+        self.queue().content.push(job);
+    }
+
+    /// El artículo se está leyendo: sus párrafos pendientes pasan delante de
+    /// los de otros artículos (ADR 0015).
+    pub(crate) fn touch_content(&self, entry_id: Id) {
+        self.queue().content.touch(entry_id);
     }
 
     /// Guarda el idioma de esos artículos y pone en cola los títulos que hay
@@ -255,23 +318,32 @@ impl Translations {
         n
     }
 
+    /// Una cosa a la vez, por este orden: títulos nuevos, párrafos (primero
+    /// los del artículo que se está leyendo) y títulos atrasados (ADR 0015).
     async fn run_worker(self, mut rx: Receivers) {
         loop {
+            if let Ok(job) = rx.urgent.try_recv() {
+                self.translate_title(job).await;
+                continue;
+            }
+            if let Some(job) = self.queue().content.pop() {
+                self.translate_segment(job).await;
+                continue;
+            }
+            if let Ok(job) = rx.backlog.try_recv() {
+                self.translate_title(job).await;
+                continue;
+            }
             tokio::select! {
                 biased;
                 Some(job) = rx.urgent.recv() => self.translate_title(job).await,
-                Some(job) = rx.content.recv() => self.translate_segment(job).await,
+                () = self.queue().content.ready.notified() => {}
                 Some(job) = rx.backlog.recv() => self.translate_title(job).await,
-                else => break,
             }
         }
     }
 
     async fn translate_segment(&self, job: SegmentJob) {
-        // El artículo ya falló o se abandonó: no gastar GPU en él.
-        if job.reply.is_closed() {
-            return;
-        }
         let result = content::translate_segment(self.llama(), &job.html).await;
         let failed = result.is_err();
         let _ = job.reply.send(result);
@@ -467,5 +539,66 @@ mod tests {
         assert_eq!(infos[&3].lang.as_deref(), Some("en"));
         assert_eq!(infos[&4].lang, None);
         assert!(!infos.contains_key(&5));
+    }
+}
+
+#[cfg(test)]
+mod queue_tests {
+    use tokio::sync::oneshot;
+
+    use super::*;
+
+    fn job(
+        entry_id: Id,
+        html: &str,
+    ) -> (
+        SegmentJob,
+        oneshot::Receiver<Result<content::Segment, String>>,
+    ) {
+        let (reply, rx) = oneshot::channel();
+        (
+            SegmentJob {
+                entry_id,
+                html: html.into(),
+                reply,
+            },
+            rx,
+        )
+    }
+
+    /// ADR 0015: el artículo pedido más recientemente pasa delante, y dentro
+    /// de cada artículo los párrafos salen en orden.
+    #[test]
+    fn last_requested_article_goes_first() {
+        let queue = ContentQueue::default();
+        let mut keep = Vec::new();
+        for html in ["a1", "a2", "a3"] {
+            let (j, rx) = job(1, html);
+            queue.push(j);
+            keep.push(rx);
+        }
+        for html in ["b1", "b2"] {
+            let (j, rx) = job(2, html);
+            queue.push(j);
+            keep.push(rx);
+        }
+        // B llegó después: va primero. Luego se vuelve a pedir A.
+        assert_eq!(queue.pop().unwrap().html, "b1");
+        queue.touch(1);
+        let order: Vec<String> = std::iter::from_fn(|| queue.pop().map(|j| j.html)).collect();
+        assert_eq!(order, ["a1", "a2", "a3", "b2"]);
+    }
+
+    #[test]
+    fn abandoned_articles_are_skipped() {
+        let queue = ContentQueue::default();
+        let (j, rx) = job(1, "a1");
+        queue.push(j);
+        drop(rx);
+        let (j, _rx) = job(2, "b1");
+        queue.push(j);
+        queue.touch(1);
+        assert_eq!(queue.pop().unwrap().html, "b1");
+        assert!(queue.pop().is_none());
     }
 }

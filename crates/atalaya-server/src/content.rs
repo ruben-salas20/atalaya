@@ -19,12 +19,12 @@
 //! pedir el completo. Así no cambia cuando Miniflux reescribe el resumen.
 
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     sync::Mutex,
     time::{Duration, Instant},
 };
 
-use atalaya_api::{Id, TranslationState};
+use atalaya_api::{Id, Progress, TranslationState};
 use reqwest::Method;
 use serde::Deserialize;
 use tokio::sync::oneshot;
@@ -126,9 +126,54 @@ const ENGLISH: &[&str] = &[
     "which", "from",
 ];
 
-/// Artículos que se están traduciendo ahora mismo.
+/// Artículos que se están traduciendo ahora mismo, con lo que llevan
+/// traducido (ADR 0015).
 #[derive(Default)]
-pub struct InProgress(Mutex<HashSet<Id>>);
+pub struct InProgress(Mutex<HashMap<Id, Partial>>);
+
+/// Lo traducido hasta ahora de un artículo en curso. Vacío mientras se pide el
+/// artículo completo a Miniflux.
+#[derive(Default)]
+pub struct Partial {
+    parts: Vec<Part>,
+    /// Uno por cada [`Part::Translate`], en orden. `None`: aún no llegó.
+    translated: Vec<Option<String>>,
+}
+
+impl Partial {
+    /// El HTML con lo traducido y el resto en el original, y el avance. `None`
+    /// si aún no se sabe cuántos párrafos hay.
+    fn render(&self) -> Option<(String, Progress)> {
+        if self.parts.is_empty() {
+            return None;
+        }
+        let done = self.translated.iter().filter(|t| t.is_some()).count();
+        let progress = Progress {
+            done: done as u32,
+            total: self.translated.len() as u32,
+        };
+        Some((assemble_partial(&self.parts, &self.translated), progress))
+    }
+}
+
+/// Lo que se sabe de la traducción del texto completo de un artículo.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContentState {
+    pub translation: TranslationState,
+    /// Con `Done`, el HTML en español; con `Pending`, el parcial, si ya hay.
+    pub html: Option<String>,
+    pub progress: Option<Progress>,
+}
+
+impl ContentState {
+    fn only(translation: TranslationState) -> Self {
+        Self {
+            translation,
+            html: None,
+            progress: None,
+        }
+    }
+}
 
 /// Saca el artículo de [`InProgress`] al terminar, también si el trabajo falla.
 pub(crate) struct InProgressGuard {
@@ -138,8 +183,8 @@ pub(crate) struct InProgressGuard {
 
 impl Drop for InProgressGuard {
     fn drop(&mut self) {
-        let set = &self.translations.in_progress().0;
-        set.lock()
+        let map = &self.translations.in_progress().0;
+        map.lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&self.entry_id);
     }
@@ -148,6 +193,8 @@ impl Drop for InProgressGuard {
 /// Un párrafo por traducir, para el trabajador de la GPU.
 #[derive(Debug)]
 pub struct SegmentJob {
+    /// Artículo al que pertenece: decide su turno en la cola (ADR 0015).
+    pub entry_id: Id,
     pub html: String,
     pub reply: oneshot::Sender<Result<Segment, String>>,
 }
@@ -163,12 +210,11 @@ pub struct Segment {
 impl Translations {
     /// Ver [`Translations::content`]. Los errores de Miniflux o de la base
     /// suben hasta allí.
-    pub(crate) async fn content_state(
-        &self,
-        entry_id: Id,
-    ) -> Result<(TranslationState, Option<String>), String> {
-        if self.is_in_progress(entry_id) {
-            return Ok((TranslationState::Pending, None));
+    pub(crate) async fn content_state(&self, entry_id: Id) -> Result<ContentState, String> {
+        if let Some(partial) = self.partial(entry_id) {
+            // Quien pregunta lo está leyendo: sus párrafos pasan delante.
+            self.touch_content(entry_id);
+            return Ok(partial);
         }
         let entry = self
             .miniflux()
@@ -176,7 +222,7 @@ impl Translations {
             .await
             .map_err(|e| e.message)?;
         if !self.needs_translation(&entry).await? {
-            return Ok((TranslationState::NotNeeded, None));
+            return Ok(ContentState::only(TranslationState::NotNeeded));
         }
 
         let hash = store::source_hash(&entry.content);
@@ -187,9 +233,15 @@ impl Translations {
             .map_err(|e| e.to_string())?;
         if let Some(row) = row.filter(|r| r.source_hash == hash) {
             match row.state.as_str() {
-                STATE_DONE => return Ok((TranslationState::Done, row.text)),
+                STATE_DONE => {
+                    return Ok(ContentState {
+                        translation: TranslationState::Done,
+                        html: row.text,
+                        progress: None,
+                    });
+                }
                 STATE_FAILED if row.age_secs < RETRY_FAILED_AFTER_SECS => {
-                    return Ok((TranslationState::Failed, None));
+                    return Ok(ContentState::only(TranslationState::Failed));
                 }
                 // `pending` sin trabajo en marcha: el servicio se reinició.
                 _ => {}
@@ -203,7 +255,55 @@ impl Translations {
             };
             tokio::spawn(self.clone().translate_content(entry, hash, guard));
         }
-        Ok((TranslationState::Pending, None))
+        Ok(ContentState::only(TranslationState::Pending))
+    }
+
+    /// Si el artículo está en curso, lo traducido hasta ahora.
+    fn partial(&self, entry_id: Id) -> Option<ContentState> {
+        let map = self
+            .in_progress()
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let partial = map.get(&entry_id)?;
+        let (html, progress) = partial.render().unzip();
+        Some(ContentState {
+            translation: TranslationState::Pending,
+            html,
+            progress,
+        })
+    }
+
+    /// Apunta en el artículo en curso qué párrafos hay ([`Self::translate_html`]).
+    fn start_partial(&self, entry_id: Id, parts: &[Part]) {
+        let total = parts
+            .iter()
+            .filter(|p| matches!(p, Part::Translate(_)))
+            .count();
+        let mut map = self
+            .in_progress()
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(partial) = map.get_mut(&entry_id) {
+            partial.parts = parts.to_vec();
+            partial.translated = vec![None; total];
+        }
+    }
+
+    /// Apunta un párrafo ya traducido del artículo en curso.
+    fn record_segment(&self, entry_id: Id, index: usize, html: &str) {
+        let mut map = self
+            .in_progress()
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(slot) = map
+            .get_mut(&entry_id)
+            .and_then(|p| p.translated.get_mut(index))
+        {
+            *slot = Some(html.to_owned());
+        }
     }
 
     /// El artículo completo pedido a Miniflux, si se pidió para este mismo
@@ -225,23 +325,18 @@ impl Translations {
         }
     }
 
-    fn is_in_progress(&self, entry_id: Id) -> bool {
-        let set = self
-            .in_progress()
-            .0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        set.contains(&entry_id)
-    }
-
     /// `true` si no estaba en curso y ahora sí.
     fn mark_in_progress(&self, entry_id: Id) -> bool {
-        let mut set = self
+        let mut map = self
             .in_progress()
             .0
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        set.insert(entry_id)
+        if map.contains_key(&entry_id) {
+            return false;
+        }
+        map.insert(entry_id, Partial::default());
+        true
     }
 
     /// Da el texto del artículo por «en curso» hasta soltar lo que devuelve,
@@ -326,6 +421,7 @@ impl Translations {
     /// Traduce el HTML párrafo a párrafo, por la cola de la GPU.
     async fn translate_html(&self, id: Id, html: &str) -> Result<String, String> {
         let parts = split(html);
+        self.start_partial(id, &parts);
         // Se ponen todos en cola de una vez: así la GPU no espera entre uno y
         // otro, y lo urgente puede colarse entre dos párrafos.
         let mut replies = Vec::new();
@@ -333,6 +429,7 @@ impl Translations {
             if let Part::Translate(text) = part {
                 let (reply, rx) = oneshot::channel();
                 self.queue_segment(SegmentJob {
+                    entry_id: id,
                     html: text.clone(),
                     reply,
                 });
@@ -342,13 +439,15 @@ impl Translations {
         let total = replies.len();
         let mut translated = Vec::with_capacity(total);
         let mut kept = 0;
-        for rx in replies {
+        for (index, rx) in replies.into_iter().enumerate() {
             // Si algo falla, salir suelta los demás `rx` y el trabajador
             // descarta sus párrafos sin traducirlos.
             let segment = rx.await.map_err(|_| "la cola de traducción se cerró")??;
             if !segment.translated {
                 kept += 1;
             }
+            // Ya se puede leer mientras sigue el resto (ADR 0015).
+            self.record_segment(id, index, &segment.html);
             translated.push(segment.html);
         }
         if total > 0 && kept == total {
@@ -609,6 +708,29 @@ pub fn assemble(parts: &[Part], translated: &[String]) -> String {
         match part {
             Part::Keep(s) => out.push_str(s),
             Part::Translate(s) => out.push_str(next.next().unwrap_or(s)),
+        }
+    }
+    out
+}
+
+/// Como [`assemble`], pero con los párrafos que faltan en el original, dentro
+/// de `<span class="atalaya-pendiente">` para que las apps los marquen
+/// (ADR 0015). Un párrafo solo lleva etiquetas de dentro de un bloque, así
+/// que el `span` siempre queda bien anidado.
+pub fn assemble_partial(parts: &[Part], translated: &[Option<String>]) -> String {
+    let mut out = String::new();
+    let mut next = translated.iter();
+    for part in parts {
+        match part {
+            Part::Keep(s) => out.push_str(s),
+            Part::Translate(s) => match next.next() {
+                Some(Some(t)) => out.push_str(t),
+                _ => {
+                    out.push_str("<span class=\"atalaya-pendiente\">");
+                    out.push_str(s);
+                    out.push_str("</span>");
+                }
+            },
         }
     }
     out
@@ -1091,6 +1213,28 @@ The Fi Ultra is the first dog tracker.
         let parts = split(html);
         assert_eq!(rejoin(&parts), html);
         assert_eq!(translatable(&parts), ["a < b and", "c", "Hi there"]);
+    }
+
+    #[test]
+    fn partial_marks_pending_paragraphs() {
+        let parts = split("<p>One <a href=\"x\">link</a>.</p><p>Two.</p><p>Three.</p>");
+        let html = assemble_partial(
+            &parts,
+            &[Some("Uno <a href=\"x\">enlace</a>.".into()), None, None],
+        );
+        assert_eq!(
+            html,
+            "<p>Uno <a href=\"x\">enlace</a>.</p>\
+             <p><span class=\"atalaya-pendiente\">Two.</span></p>\
+             <p><span class=\"atalaya-pendiente\">Three.</span></p>"
+        );
+        let partial = Partial {
+            translated: vec![Some("Uno.".into()), None, Some("Tres.".into())],
+            parts,
+        };
+        let (_, progress) = partial.render().unwrap();
+        assert_eq!(progress, Progress { done: 2, total: 3 });
+        assert!(Partial::default().render().is_none());
     }
 
     #[test]
