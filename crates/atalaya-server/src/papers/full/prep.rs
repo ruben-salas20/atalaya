@@ -104,6 +104,19 @@ impl Writer<'_> {
         {
             return;
         }
+        // Una afiliación vacía, solo con su rótulo («Affiliation: »), sobra.
+        if has_class("ltx_contact") {
+            let label: String = el
+                .children()
+                .filter_map(ElementRef::wrap)
+                .filter(|c| c.value().classes().any(|x| x == "ltx_contact_name"))
+                .flat_map(|c| c.text())
+                .collect();
+            let all: String = el.text().collect();
+            if all.trim() == label.trim() {
+                return;
+            }
+        }
         if name == "math" {
             let Some(latex) = v.attr("alttext") else {
                 return;
@@ -162,10 +175,50 @@ impl Writer<'_> {
         if VOID.contains(&name) {
             return;
         }
+        // Las notas de un título (agradecimientos, notas al pie) salen del
+        // título y van detrás como párrafo: dentro se leían como parte de él.
+        let title = matches!(name, "h1" | "h2" | "h3" | "h4" | "h5" | "h6");
+        let mut notes = Vec::new();
         for child in el.children() {
+            if title
+                && let Some(c) = ElementRef::wrap(child)
+                && c.value()
+                    .classes()
+                    .any(|x| x == "ltx_pubnotes" || x == "ltx_note")
+            {
+                notes.push(c);
+                continue;
+            }
             self.node(child);
         }
         self.out.html.push_str(&format!("</{name}>"));
+        for note in notes {
+            self.title_note(note);
+        }
+    }
+
+    /// El texto de una nota de título como párrafo propio, sin la marca de
+    /// la nota (el número o el símbolo que la enlaza).
+    fn title_note(&mut self, note: ElementRef<'_>) {
+        let content = Selector::parse(".ltx_pubnote, .ltx_note_content").expect("selector válido");
+        let mut parts: Vec<ElementRef> = note.select(&content).collect();
+        if parts.is_empty() {
+            parts.push(note);
+        }
+        for part in parts {
+            self.out.html.push_str("<p class=\"atalaya-nota\">");
+            for child in part.children() {
+                if let Some(c) = ElementRef::wrap(child)
+                    && c.value()
+                        .classes()
+                        .any(|x| x == "ltx_note_mark" || x == "ltx_tag_note")
+                {
+                    continue;
+                }
+                self.node(child);
+            }
+            self.out.html.push_str("</p>");
+        }
     }
 
     /// Una ecuación aparte (o un grupo): por cada fila, sus fórmulas como
@@ -666,6 +719,38 @@ mod tests {
         );
         assert!(!p.html.contains("Report issue"), "{}", p.html);
         assert!(p.html.contains("texto"));
+    }
+
+    #[test]
+    fn la_nota_del_titulo_va_detras_como_parrafo() {
+        let page = "<article class=\"ltx_document\"><h1 class=\"ltx_title ltx_title_document\">Radio Map\
+            <span class=\"ltx_pubnotes\"><span class=\"ltx_pubnotes_content\"><span class=\"ltx_pubnote ltx_role_thanks\">\
+            <span class=\"ltx_note_name\">Thanks: </span>Funded by NSF.</span></span></span></h1>\
+            <h2 class=\"ltx_title\">Intro<span class=\"ltx_note ltx_role_footnote\"><sup class=\"ltx_note_mark\">1</sup>\
+            <span class=\"ltx_note_outer\"><span class=\"ltx_note_content\"><sup class=\"ltx_note_mark\">1</sup>A note.</span></span></span></h2>\
+            </article>";
+        let p = prepare(page, "https://arxiv.org/html/");
+        assert!(
+            p.html.contains("Radio Map</h1><p class=\"atalaya-nota\"><span class=\"ltx_note_name\">Thanks: </span>Funded by NSF.</p>"),
+            "{}",
+            p.html
+        );
+        assert!(
+            p.html
+                .contains("Intro</h2><p class=\"atalaya-nota\">A note.</p>"),
+            "{}",
+            p.html
+        );
+    }
+
+    #[test]
+    fn la_afiliacion_vacia_se_quita() {
+        let page = "<article class=\"ltx_document\"><div class=\"ltx_authors\">\
+            <span class=\"ltx_contact\"><span class=\"ltx_contact_name\">Affiliation: </span>UNF</span>\
+            <span class=\"ltx_contact\"><span class=\"ltx_contact_name\">Affiliation: </span> </span></div></article>";
+        let p = prepare(page, "https://arxiv.org/html/");
+        assert_eq!(p.html.matches("Affiliation").count(), 1, "{}", p.html);
+        assert!(p.html.contains("UNF"), "{}", p.html);
     }
 
     #[test]
