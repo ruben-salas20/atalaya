@@ -346,8 +346,12 @@ impl Translations {
     async fn translate_segment(&self, job: SegmentJob) {
         let result = match job.kind {
             SegmentKind::Article => content::translate_segment(self.llama(), &job.html).await,
-            SegmentKind::Paper => crate::papers::full::translate_paragraph(self.llama(), &job.html).await,
-            SegmentKind::TableCells => crate::papers::full::translate_cells(self.llama(), &job.html).await,
+            SegmentKind::Paper => {
+                crate::papers::full::translate_paragraph(self.llama(), &job.html).await
+            }
+            SegmentKind::TableCells => {
+                crate::papers::full::translate_cells(self.llama(), &job.html).await
+            }
         };
         let failed = result.is_err();
         let _ = job.reply.send(result);

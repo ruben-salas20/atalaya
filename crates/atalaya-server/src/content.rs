@@ -855,7 +855,7 @@ fn placeholder(n: usize, pair: bool, closing: bool) -> String {
 /// abreviado y la tabla para deshacer el cambio con [`restore`]. Un cierre
 /// sin apertura, o una apertura sin cierre, queda como etiqueta suelta.
 fn abbreviate(html: &str) -> (String, Vec<Original>) {
-    let tokens = tokenize(html);
+    let tokens = group_opaque(html, tokenize(html));
     let mut originals: Vec<Original> = Vec::new();
     // Por token: la etiqueta de la tabla que le toca y si es de cierre.
     let mut slots: Vec<Option<(usize, bool)>> = Vec::with_capacity(tokens.len());
@@ -904,6 +904,76 @@ fn abbreviate(html: &str) -> (String, Vec<Original>) {
         }
     }
     (out, originals)
+}
+
+/// Elementos que viajan enteros como una sola forma corta `<tN/>`: el modelo
+/// no ve su interior. Las citas de un paper (`[<a>1</a>, <a>2</a>]`) se
+/// rompían al traducirlas: el modelo pegaba el corchete al cierre, `</t3]` (#38).
+const OPAQUE: &[&str] = &["cite"];
+
+/// Junta cada elemento de [`OPAQUE`], de la apertura a su cierre, en un solo
+/// [`Token::Other`]. Si no se cierra, se queda como estaba.
+fn group_opaque<'a>(html: &'a str, tokens: Vec<Token<'a>>) -> Vec<Token<'a>> {
+    let offset = |t: &Token<'_>| t.raw().as_ptr() as usize - html.as_ptr() as usize;
+    // Por cada apertura opaca bien cerrada: (índice de su cierre, texto entero).
+    let mut spans = Vec::new();
+    let mut i = 0;
+    while i < tokens.len() {
+        if let Token::Tag {
+            name,
+            closing: false,
+            ..
+        } = &tokens[i]
+            && OPAQUE.contains(&name.as_str())
+            && !tokens[i].is_self_closing()
+        {
+            let mut depth = 0i32;
+            let end = tokens[i..].iter().position(|t| {
+                if let Token::Tag {
+                    name: n, closing, ..
+                } = t
+                    && n == name
+                {
+                    depth += if *closing { -1 } else { 1 };
+                }
+                depth == 0
+            });
+            if let Some(e) = end {
+                let last = &tokens[i + e];
+                spans.push((
+                    i,
+                    i + e,
+                    &html[offset(&tokens[i])..offset(last) + last.raw().len()],
+                ));
+                i += e + 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    let mut out = Vec::with_capacity(tokens.len());
+    let mut spans = spans.into_iter().peekable();
+    let mut skip_to = None;
+    for (k, token) in tokens.into_iter().enumerate() {
+        if let Some(end) = skip_to {
+            if k == end {
+                skip_to = None;
+            }
+            continue;
+        }
+        if let Some(&(start, end, raw)) = spans.peek()
+            && start == k
+        {
+            spans.next();
+            out.push(Token::Other(raw));
+            if end > k {
+                skip_to = Some(end);
+            }
+            continue;
+        }
+        out.push(token);
+    }
+    out
 }
 
 /// Deshace [`abbreviate`]. Solo acepta cada forma corta exacta, una vez por
@@ -1344,6 +1414,21 @@ The Fi Ultra is the first dog tracker.
             r#"Lee <a href="https://a.com/?x=1&amp;y=2">esto</a> ahora."#
         );
         assert_eq!(check(o, &restored), Ok(()));
+    }
+
+    #[test]
+    fn citations_travel_as_one_placeholder() {
+        let html = "computation <cite class=\"c\">[<a href=\"#b1\">1</a>, <a href=\"#b2\">2</a>]</cite>. Next";
+        let (short, originals) = abbreviate(html);
+        assert_eq!(short, "computation <t1/>. Next");
+        let back = restore("cómputo <t1/>. Siguiente", &originals).unwrap();
+        assert_eq!(
+            back,
+            "cómputo <cite class=\"c\">[<a href=\"#b1\">1</a>, <a href=\"#b2\">2</a>]</cite>. Siguiente"
+        );
+        assert!(check(html, &back).is_ok());
+        // Sin cierre, se queda como estaba.
+        assert_eq!(abbreviate("a <cite>b").0, "a <t1/>b");
     }
 
     #[test]

@@ -61,7 +61,10 @@ pub async fn render(script: &str, formulas: &[(String, bool)]) -> Result<Vec<Opt
         return Err(format!(
             "MathJax falló ({}): {}",
             output.status,
-            String::from_utf8_lossy(&output.stderr).chars().take(300).collect::<String>()
+            String::from_utf8_lossy(&output.stderr)
+                .chars()
+                .take(300)
+                .collect::<String>()
         ));
     }
     let svgs: Vec<Option<Svg>> = serde_json::from_slice(&output.stdout)

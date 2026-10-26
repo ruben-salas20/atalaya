@@ -27,7 +27,12 @@ pub fn extract_tables(html: &str) -> (String, Vec<String>) {
 fn table_end(html: &str) -> Option<usize> {
     let mut depth = 0usize;
     let mut i = 0;
-    while let Some(off) = html[i..].find("<table").into_iter().chain(html[i..].find("</table>")).min() {
+    while let Some(off) = html[i..]
+        .find("<table")
+        .into_iter()
+        .chain(html[i..].find("</table>"))
+        .min()
+    {
         let at = i + off;
         if html[at..].starts_with("</table>") {
             depth = depth.checked_sub(1)?;
@@ -68,7 +73,9 @@ pub fn put_formulas(html: &str, arxiv_id: &str, formulas: &[FormulaOut]) -> Stri
     let mut rest = html;
     loop {
         let inline = rest.find("<m id=\"");
-        let block = rest.find("data-formula=\"").and_then(|at| rest[..at].rfind("<img").map(|s| (s, at)));
+        let block = rest
+            .find("data-formula=\"")
+            .and_then(|at| rest[..at].rfind("<img").map(|s| (s, at)));
         let next = match (inline, block) {
             (Some(i), Some((b, _))) if b < i => Next::Block(b),
             (Some(i), _) => Next::Inline(i),
@@ -167,9 +174,21 @@ mod tests {
             height: "2ex".into(),
         };
         let formulas = [
-            FormulaOut { latex: "x<y", display: false, svg: Some(&svg) },
-            FormulaOut { latex: "\\lx@a", display: false, svg: None },
-            FormulaOut { latex: "E=mc^2", display: true, svg: Some(&svg) },
+            FormulaOut {
+                latex: "x<y",
+                display: false,
+                svg: Some(&svg),
+            },
+            FormulaOut {
+                latex: "\\lx@a",
+                display: false,
+                svg: None,
+            },
+            FormulaOut {
+                latex: "E=mc^2",
+                display: true,
+                svg: Some(&svg),
+            },
         ];
         let html = "<p>Si <m id=\"0\">x&lt;y</m> y <m id=\"1\">\\lx@a</m>:</p>\
                     <img class=\"atalaya-formula-bloque\" data-formula=\"2\"><p>fin</p>";
