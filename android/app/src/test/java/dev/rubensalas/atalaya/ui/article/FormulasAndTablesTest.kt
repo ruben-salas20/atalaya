@@ -92,6 +92,32 @@ class FormulasAndTablesTest {
     }
 
     @Test
+    fun colspanHeaderCoversTwoColumns() {
+        val table = parseArticleHtml(
+            """<table><tr><th colspan="2">Mejora relativa al original (%)</th><th>Memoria (%)</th></tr>""" +
+                """<tr><td>a</td><td>b</td><td>c</td></tr></table>""",
+            SERVICE,
+        ).single() as Block.Table
+        val header = table.rows[0]
+        // La cabecera mide 2 + 1 = 3 columnas, igual que la fila de datos de tres celdas.
+        assertEquals(3, header.sumOf { it.colspan })
+        assertEquals(3, table.rows[1].sumOf { it.colspan })
+        assertEquals(2, header[0].colspan)
+        assertEquals("Mejora relativa al original (%)", header[0].text.text)
+        assertEquals(1, header[1].colspan)
+        assertEquals("Memoria (%)", header[1].text.text)
+    }
+
+    @Test
+    fun svgFigureFromArxivIsAPlainImageNotAFormula() {
+        val blocks = parseArticleHtml(
+            """<figure class="ltx_figure"><img src="https://arxiv.org/html/2610.31646v1/fig.svg" alt="Figura" class="ltx_graphics ltx_img_landscape"></figure>""",
+            SERVICE,
+        )
+        assertEquals(listOf(Block.Image("https://arxiv.org/html/2610.31646v1/fig.svg", "Figura")), blocks)
+    }
+
+    @Test
     fun tableCaptionComesBeforeTheTable() {
         val blocks = parseArticleHtml(
             """<figure class="ltx_table"><figcaption>Tabla 1: resultados</figcaption><table><tr><td>a</td></tr></table></figure>""",

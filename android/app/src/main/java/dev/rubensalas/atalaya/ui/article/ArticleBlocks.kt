@@ -193,7 +193,8 @@ private fun ArticleTable(table: Block.Table, color: Color, modifier: Modifier) {
                             fontWeight = if (cell.header) FontWeight.Medium else FontWeight.Normal,
                             color = color,
                             modifier = Modifier
-                                .width(TABLE_CELL_WIDTH)
+                                // Un colspan de k mide k anchos de celda: las filas de datos cuadran con él.
+                                .width(TABLE_CELL_WIDTH * cell.colspan)
                                 .fillMaxHeight()
                                 .background(if (cell.header) c.surface else c.bg)
                                 .border(0.5.dp, c.divider)

@@ -30,8 +30,11 @@ sealed interface SpanStyleKind {
 /** La clase que el servicio pone a cada párrafo que falta por traducir (ADR 0015). */
 const val PENDING_CLASS = "atalaya-pendiente"
 
-/** Una celda de tabla. [header] es true en las de cabecera (`th`). */
-data class TableCell(val text: RichText, val header: Boolean = false)
+/**
+ * Una celda de tabla. [header] es true en las de cabecera (`th`). [colspan] es
+ * cuántas columnas ocupa (`colspan` del HTML): mide [colspan] anchos de celda.
+ */
+data class TableCell(val text: RichText, val header: Boolean = false, val colspan: Int = 1)
 
 sealed interface Block {
     data class Paragraph(val text: RichText) : Block
@@ -63,6 +66,9 @@ private val CONTAINERS = setOf(
     "figcaption", "dl", "dt", "dd", "details", "summary", "hgroup", "body",
 )
 private val WHITESPACE = Regex("\\s+")
+
+/** Tope de `colspan`: un valor absurdo no deja la tabla sin medida. */
+private const val MAX_COLSPAN = 50
 
 private class HtmlWalker {
     private val blocks = mutableListOf<Block>()
@@ -182,7 +188,13 @@ private class HtmlWalker {
             .filter { row -> row.parents().firstOrNull { it.normalName() == "table" } == el }
             .map { row ->
                 row.children().filter { it.normalName() == "td" || it.normalName() == "th" }
-                    .map { cell -> TableCell(inlineText(cell) ?: RichText(""), header = cell.normalName() == "th") }
+                    .map { cell ->
+                        TableCell(
+                            text = inlineText(cell) ?: RichText(""),
+                            header = cell.normalName() == "th",
+                            colspan = cell.attr("colspan").toIntOrNull()?.coerceIn(1, MAX_COLSPAN) ?: 1,
+                        )
+                    }
             }
             .filter { it.isNotEmpty() }
         if (rows.isNotEmpty()) blocks += Block.Table(rows)
