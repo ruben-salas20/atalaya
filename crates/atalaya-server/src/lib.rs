@@ -75,6 +75,7 @@ pub fn app(state: AppState) -> Router {
         .route("/health", get(health))
         .nest("/api", api)
         .merge(webhook::routes())
+        .route("/formulas/{arxiv_id}/{file}", get(papers::formula_svg))
         .fallback(error::not_found)
         .method_not_allowed_fallback(error::method_not_allowed)
         .with_state(state)

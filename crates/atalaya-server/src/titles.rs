@@ -32,7 +32,7 @@ use serde::Deserialize;
 use tokio::sync::{Notify, mpsc};
 
 use crate::{
-    content::{self, SegmentJob},
+    content::{self, SegmentJob, SegmentKind},
     lang,
     miniflux::Miniflux,
     store::{self, FIELD_TITLE, SeenEntry},
@@ -344,7 +344,11 @@ impl Translations {
     }
 
     async fn translate_segment(&self, job: SegmentJob) {
-        let result = content::translate_segment(self.llama(), &job.html).await;
+        let result = match job.kind {
+            SegmentKind::Article => content::translate_segment(self.llama(), &job.html).await,
+            SegmentKind::Paper => crate::papers::full::translate_paragraph(self.llama(), &job.html).await,
+            SegmentKind::TableCells => crate::papers::full::translate_cells(self.llama(), &job.html).await,
+        };
         let failed = result.is_err();
         let _ = job.reply.send(result);
         if failed {
@@ -559,6 +563,7 @@ mod queue_tests {
         (
             SegmentJob {
                 entry_id,
+                kind: SegmentKind::Article,
                 html: html.into(),
                 reply,
             },

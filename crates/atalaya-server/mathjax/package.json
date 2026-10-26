@@ -1,0 +1,9 @@
+{
+  "name": "atalaya-mathjax",
+  "private": true,
+  "description": "Convierte las fórmulas de un paper en SVG para el servicio de Atalaya (ADR 0010)",
+  "type": "module",
+  "dependencies": {
+    "mathjax-full": "3.2.2"
+  }
+}
