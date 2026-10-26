@@ -641,6 +641,81 @@ mod tests {
         assert!(copy.summary.read);
     }
 
+    /// Un artículo como lo da el servicio, con la traducción dada.
+    fn entry_body(translation: &str, translated: Option<&str>) -> String {
+        serde_json::json!({
+            "id": 7,
+            "feed_id": 1,
+            "feed_title": "Feed",
+            "title": "Título",
+            "original_title": "Title",
+            "title_translated": false,
+            "lang": "en",
+            "url": "https://example.com/a",
+            "published_at": "2026-01-07T00:00:00Z",
+            "read": false,
+            "starred": false,
+            "author": null,
+            "content": "<p>One.</p><p>Two.</p>",
+            "translation": translation,
+            "translated_content": translated,
+            "progress": if translation == "pending" {
+                serde_json::json!({ "done": 1, "total": 2 })
+            } else {
+                serde_json::Value::Null
+            },
+        })
+        .to_string()
+    }
+
+    /// Hace de servicio: responde `body` a la primera petición.
+    fn serve_once(body: String) -> (u16, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("no se pudo abrir el servidor");
+        let port = listener.local_addr().expect("puerto del servidor").port();
+        let service = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("conexión de prueba");
+            read_request(&mut stream);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("respuesta de prueba");
+        });
+        (port, service)
+    }
+
+    #[test]
+    fn partial_translation_is_not_copied_to_disk() {
+        let dir = TempDir::new();
+        let partial = "<p>Uno.</p><p><span class=\"atalaya-pendiente\">Two.</span></p>";
+        let (port, service) = serve_once(entry_body("pending", Some(partial)));
+
+        let entry = client_at(&dir, port)
+            .entry(7)
+            .expect("el servicio responde");
+        service.join().expect("el servicio de prueba falló");
+
+        // Lo que se ve en pantalla sí llega; el disco no lo guarda.
+        assert_eq!(entry.translation, TranslationState::Pending);
+        assert!(entry.translated_content.is_some());
+        assert!(!dir.cache().contains(&entry_key(7)));
+    }
+
+    #[test]
+    fn finished_translation_is_copied_to_disk() {
+        let dir = TempDir::new();
+        let (port, service) = serve_once(entry_body("done", Some("<p>Uno.</p><p>Dos.</p>")));
+
+        client_at(&dir, port)
+            .entry(7)
+            .expect("el servicio responde");
+        service.join().expect("el servicio de prueba falló");
+
+        assert!(dir.cache().contains(&entry_key(7)));
+    }
+
     #[test]
     fn stale_send_sends_the_latest_queued_state() {
         let dir = TempDir::new();
