@@ -211,6 +211,11 @@ pub struct Entry {
     /// Con `Pending`, cuántos párrafos van traducidos (ADR 0015).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub progress: Option<Progress>,
+    /// Si el artículo es un paper de arXiv (un paper guardado, o un feed de
+    /// arXiv), su identificador sin versión: la app ofrece «Leer completo»
+    /// con `/api/papers/{arxiv_id}/full` (#90).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arxiv_id: Option<String>,
 }
 
 /// Avance de una traducción en curso: `done` de `total` párrafos.
@@ -529,6 +534,7 @@ mod tests {
             translation: TranslationState::Pending,
             translated_content: None,
             progress: Some(Progress { done: 2, total: 5 }),
+            arxiv_id: None,
         };
         let json = serde_json::to_value(&entry).unwrap();
         assert_eq!(json["id"], 1);

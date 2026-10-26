@@ -313,6 +313,25 @@ pub fn is_valid_id(id: &str) -> bool {
 }
 
 /// Página del paper.
+/// El identificador sin versión de una dirección de arXiv
+/// (`https://arxiv.org/abs/2610.08812v2`, `/pdf/…`, `/html/…`), o `None`.
+pub fn id_from_url(url: &str) -> Option<String> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    let rest = rest.strip_prefix("www.").unwrap_or(rest);
+    let rest = rest
+        .strip_prefix("arxiv.org/")
+        .or_else(|| rest.strip_prefix("export.arxiv.org/"))?;
+    let path = ["abs/", "pdf/", "html/"]
+        .iter()
+        .find_map(|p| rest.strip_prefix(p))?;
+    let path = path.split(['?', '#']).next()?.trim_end_matches('/');
+    let path = path.strip_suffix(".pdf").unwrap_or(path);
+    let id = strip_version(path);
+    is_valid_id(id).then(|| id.to_owned())
+}
+
 pub fn abs_url(arxiv_id: &str) -> String {
     format!("https://arxiv.org/abs/{arxiv_id}")
 }
@@ -484,6 +503,28 @@ pub fn paragraphs(summary: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn id_desde_direccion() {
+        assert_eq!(
+            id_from_url("https://arxiv.org/abs/2610.08812v2").as_deref(),
+            Some("2610.08812")
+        );
+        assert_eq!(
+            id_from_url("http://arxiv.org/pdf/2610.08812.pdf").as_deref(),
+            Some("2610.08812")
+        );
+        assert_eq!(
+            id_from_url("https://arxiv.org/html/2610.08812v1/").as_deref(),
+            Some("2610.08812")
+        );
+        assert_eq!(
+            id_from_url("https://arxiv.org/abs/hep-th/9901001").as_deref(),
+            Some("hep-th/9901001")
+        );
+        assert_eq!(id_from_url("https://example.com/abs/2610.08812"), None);
+        assert_eq!(id_from_url("https://arxiv.org/list/cs.CL/new"), None);
+    }
 
     const SAMPLE: &str = r#"<?xml version='1.0' encoding='UTF-8'?>
 <feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
