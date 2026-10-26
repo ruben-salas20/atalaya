@@ -192,7 +192,7 @@ fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
                 PRIMARY KEY (arxiv_id, n)
             );",
         )?;
-        tx.pragma_update(None, "user_version", 4)?;
+        tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         tx.commit()?;
     }
     Ok(())

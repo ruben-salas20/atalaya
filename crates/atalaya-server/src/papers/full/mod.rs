@@ -168,13 +168,17 @@ impl FullPapers {
         ) {
             return Ok(current);
         }
-        {
+        let started = {
             let mut running = self.running();
             if running.contains_key(arxiv_id) {
-                drop(running);
-                return self.state(arxiv_id).await;
+                false
+            } else {
+                running.insert(arxiv_id.to_owned(), Running::default());
+                true
             }
-            running.insert(arxiv_id.to_owned(), Running::default());
+        };
+        if !started {
+            return self.state(arxiv_id).await;
         }
         let id = arxiv_id.to_owned();
         self.inner
