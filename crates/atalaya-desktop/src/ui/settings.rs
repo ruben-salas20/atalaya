@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use atalaya_api::Status;
+use atalaya_api::{Cleanup, Status};
 use gpui::prelude::*;
 use gpui::{Context, Entity, FontWeight, SharedString, Subscription, Task, Window, div, px};
 use gpui_component::Sizable;
@@ -20,6 +20,7 @@ use crate::palette::Palette;
 use crate::settings::{FONT_SIZES, FontSize, Settings};
 use crate::ui::Connection;
 use crate::ui::feeds::capitalize;
+use crate::ui::format::{NOTHING_TO_CLEAN, cleanup_question, freed_text};
 use crate::ui::updates::{UpdateStatus, Updates, settings_text};
 use crate::ui::widgets::{bar, pill};
 use crate::update::CURRENT;
@@ -32,6 +33,17 @@ enum Probe {
     Done(Result<Status, String>),
 }
 
+/// «Borrar traducciones de lo leído» (#91): primero se cuenta, luego se confirma.
+enum CleanupStep {
+    Idle,
+    /// Se pide la cuenta (`GET`).
+    Counting,
+    /// La cuenta espera a que el usuario confirme.
+    Confirm(Cleanup),
+    /// Se borra (`POST`).
+    Running,
+}
+
 pub struct SettingsScreen {
     /// Lo último que se leyó del archivo o se guardó en él.
     saved: Settings,
@@ -42,7 +54,11 @@ pub struct SettingsScreen {
     probe: Probe,
     /// Resultado de la última escritura: `Ok` con un aviso o `Err`.
     notice: Option<Result<String, String>>,
+    cleanup: CleanupStep,
+    /// Lo que dijo la última limpieza: lo liberado, «no hay nada» o un error.
+    cleanup_notice: Option<Result<String, String>>,
     _probe: Task<()>,
+    _cleanup: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -96,7 +112,10 @@ impl SettingsScreen {
             updates,
             probe: Probe::Idle,
             notice,
+            cleanup: CleanupStep::Idle,
+            cleanup_notice: None,
             _probe: Task::ready(()),
+            _cleanup: Task::ready(()),
             _subscriptions: subscriptions,
         }
     }
@@ -154,6 +173,73 @@ impl SettingsScreen {
         self.probe = Probe::Idle;
         self.notice = Some(Ok("Guardado".into()));
         cx.set_global(Connection(connection));
+        cx.notify();
+    }
+
+    /// Pide cuánto se borraría. Si no hay nada, lo dice; si hay algo, pide confirmación.
+    fn count_cleanup(&mut self, cx: &mut Context<Self>) {
+        let client = match crate::ui::client(cx) {
+            Ok(client) => client,
+            Err(error) => {
+                self.cleanup_notice = Some(Err(error));
+                cx.notify();
+                return;
+            }
+        };
+        self.cleanup = CleanupStep::Counting;
+        self.cleanup_notice = None;
+        self._cleanup = cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { client.translation_cleanup_preview() })
+                .await;
+            this.update(cx, |this, cx| {
+                this.cleanup = CleanupStep::Idle;
+                match result {
+                    Ok(cleanup) if cleanup.entries == 0 && cleanup.papers == 0 => {
+                        this.cleanup_notice = Some(Ok(NOTHING_TO_CLEAN.into()));
+                    }
+                    Ok(cleanup) => this.cleanup = CleanupStep::Confirm(cleanup),
+                    Err(error) => this.cleanup_notice = Some(Err(error)),
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        cx.notify();
+    }
+
+    /// Confirmado: borra y dice cuánto se liberó.
+    fn confirm_cleanup(&mut self, cx: &mut Context<Self>) {
+        let client = match crate::ui::client(cx) {
+            Ok(client) => client,
+            Err(error) => {
+                self.cleanup = CleanupStep::Idle;
+                self.cleanup_notice = Some(Err(error));
+                cx.notify();
+                return;
+            }
+        };
+        self.cleanup = CleanupStep::Running;
+        self.cleanup_notice = None;
+        self._cleanup = cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { client.cleanup_translations() })
+                .await;
+            this.update(cx, |this, cx| {
+                this.cleanup = CleanupStep::Idle;
+                this.cleanup_notice = Some(match result {
+                    Ok(done) => Ok(freed_text(done)),
+                    Err(error) => Err(error),
+                });
+                cx.notify();
+            })
+            .ok();
+        });
+        cx.notify();
+    }
+
+    fn cancel_cleanup(&mut self, cx: &mut Context<Self>) {
+        self.cleanup = CleanupStep::Idle;
         cx.notify();
     }
 
@@ -268,6 +354,54 @@ impl Render for SettingsScreen {
                 .text_color(color)
                 .child(text)
         });
+        // «Borrar traducciones de lo leído» (#91): la nota dice en qué va.
+        let cleanup_note = match self.cleanup {
+            CleanupStep::Counting => "Buscando…",
+            CleanupStep::Running => "Borrando…",
+            CleanupStep::Idle | CleanupStep::Confirm(_) => {
+                "Libera espacio. Se vuelven a traducir si los abres"
+            }
+        };
+        let cleanup_control = match self.cleanup {
+            CleanupStep::Idle => pill("cleanup-start", "Borrar…", &p)
+                .on_click(cx.listener(|this, _, _, cx| this.count_cleanup(cx)))
+                .into_any_element(),
+            _ => div().into_any_element(),
+        };
+        let cleanup_confirm =
+            match self.cleanup {
+                CleanupStep::Confirm(cleanup) => Some(
+                    div()
+                        .mt(px(10.))
+                        .text_size(px(12.5))
+                        .text_color(p.text2)
+                        .child(cleanup_question(cleanup))
+                        .child(
+                            div()
+                                .mt(px(10.))
+                                .flex()
+                                .gap(px(8.))
+                                .child(pill("cleanup-confirm", "Borrar", &p).on_click(
+                                    cx.listener(|this, _, _, cx| this.confirm_cleanup(cx)),
+                                ))
+                                .child(pill("cleanup-cancel", "Cancelar", &p).on_click(
+                                    cx.listener(|this, _, _, cx| this.cancel_cleanup(cx)),
+                                )),
+                        ),
+                ),
+                _ => None,
+            };
+        let cleanup_notice = self.cleanup_notice.as_ref().map(|n| {
+            let (text, color) = match n {
+                Ok(text) => (text.clone(), p.text2),
+                Err(error) => (error.clone(), p.text),
+            };
+            div()
+                .mt(px(10.))
+                .text_size(px(12.5))
+                .text_color(color)
+                .child(text)
+        });
         div()
             .flex_1()
             .min_w_0()
@@ -333,6 +467,15 @@ impl Render for SettingsScreen {
                                     .child(Select::new(&self.font_size).small()),
                                 &p,
                             ))
+                            .child(heading("Traducciones", &p))
+                            .child(field(
+                                "Borrar traducciones de lo leído",
+                                Some(div().child(cleanup_note).into_any_element()),
+                                cleanup_control,
+                                &p,
+                            ))
+                            .children(cleanup_confirm)
+                            .children(cleanup_notice)
                             .child(heading("Versión", &p))
                             .child(field("Versión instalada", None, CURRENT, &p))
                             .child(field(

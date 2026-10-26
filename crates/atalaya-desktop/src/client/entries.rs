@@ -17,7 +17,7 @@ use reqwest::Method;
 
 use super::{ApiClient, Result, check, read_json};
 
-fn entry_key(id: Id) -> String {
+pub(super) fn entry_key(id: Id) -> String {
     format!("entries/{id}")
 }
 

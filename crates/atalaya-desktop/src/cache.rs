@@ -42,6 +42,24 @@ impl Cache {
         self.path(key).exists()
     }
 
+    /// Quita una copia. Sin ella, la próxima lectura va al servicio.
+    pub fn remove(&self, key: &str) {
+        fs::remove_file(self.path(key)).ok();
+    }
+
+    /// Las claves de los artículos guardados en disco (`entries/{id}`).
+    pub fn entry_keys(&self) -> Vec<String> {
+        let Ok(dir) = fs::read_dir(self.dir.join("entries")) else {
+            return Vec::new();
+        };
+        dir.flatten()
+            .filter_map(|file| {
+                let name = file.file_name().to_string_lossy().into_owned();
+                name.strip_suffix(".json").map(|id| format!("entries/{id}"))
+            })
+            .collect()
+    }
+
     /// Escribe en un archivo aparte y lo renombra, para que un corte a
     /// medias no deje un JSON roto.
     pub fn store<T: Serialize>(&self, key: &str, value: &T) {

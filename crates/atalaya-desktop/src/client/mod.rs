@@ -8,11 +8,13 @@
 //! - `entries.rs`: lista, menú lateral y artículos (pasos 5.1 y 5.2).
 //! - `feeds.rs`: feeds y carpetas (paso 5.4).
 //! - `papers.rs`: búsqueda, apertura y guardado de papers (paso 5.3).
+//! - `translations.rs`: volver a traducir y borrar las traducciones de lo leído (#91).
 
 mod entries;
 mod feeds;
 mod papers;
 mod pending;
+mod translations;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};

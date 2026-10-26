@@ -6,13 +6,14 @@
 //! segundos. Guardar no se deshace aquí, igual que en Android: se quita
 //! desde Guardados. El texto completo (P7) es el de `ui/fulltext`.
 
+use std::rc::Rc;
 use std::time::Duration;
 
 use atalaya_api::{EntrySummary, Paper, PaperSummary, TranslationState};
 use gpui::prelude::*;
 use gpui::{
-    Context, ElementId, Entity, EventEmitter, FontWeight, Pixels, SharedString, Task, Window, div,
-    px, relative,
+    App, Context, ElementId, Entity, EventEmitter, FontWeight, Pixels, SharedString, Task, Window,
+    div, px, relative,
 };
 use gpui_base::text::TextView;
 use gpui_component::scroll::ScrollableElement;
@@ -23,7 +24,7 @@ use crate::assets::Icon;
 use crate::palette::Palette;
 use crate::ui::fulltext::{FullText, full};
 use crate::ui::reader::{POLL_EVERY, progress, toast};
-use crate::ui::widgets::{bar, icon, icon_button, more_menu};
+use crate::ui::widgets::{MenuAction, bar, icon, icon_button, more_menu};
 
 pub enum PaperReaderEvent {
     /// Se guardó: la fila de resultados y el menú deben reflejarlo.
@@ -138,6 +139,57 @@ impl PaperReader {
             })
             .ok();
         });
+    }
+
+    /// «Volver a traducir» (#91): borra la traducción del paper, con su texto
+    /// completo, y la del artículo guardado si lo hay, y vuelve a pedir el
+    /// paper. Con un 409 no borra nada y lo dice.
+    fn retranslate(&mut self, cx: &mut Context<Self>) {
+        let Some(summary) = self.summary.clone() else {
+            return;
+        };
+        let client = match crate::ui::client(cx) {
+            Ok(client) => client,
+            Err(error) => {
+                self.action_error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
+        self.action_error = None;
+        let arxiv_id = summary.arxiv_id;
+        let saved = summary.saved_entry_id;
+        cx.spawn(async move |this, cx| {
+            let paper = arxiv_id.clone();
+            let forgotten = cx
+                .background_spawn(
+                    async move { client.forget_translations(saved, Some(paper.as_str())) },
+                )
+                .await;
+            this.update(cx, |this, cx| {
+                if !this.is_current(&arxiv_id) {
+                    return;
+                }
+                // Lo que ya se borró se vuelve a pedir, aunque otra cosa haya fallado.
+                if forgotten.entry || forgotten.paper {
+                    this.fetch(arxiv_id.clone(), Duration::ZERO, cx);
+                    this.full_text
+                        .update(cx, |full, cx| full.open(Some(arxiv_id), cx));
+                }
+                this.action_error = forgotten.error;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// La opción «Volver a traducir» del menú, que vuelve a este lector.
+    fn retranslate_action(cx: &mut Context<Self>) -> MenuAction {
+        let reader = cx.weak_entity();
+        Rc::new(move |cx: &mut App| {
+            reader.update(cx, |reader, cx| reader.retranslate(cx)).ok();
+        })
     }
 
     fn save(&mut self, cx: &mut Context<Self>) {
@@ -258,7 +310,11 @@ impl PaperReader {
                         move |_, _, cx| cx.open_url(&abs_url)
                     }),
             )
-            .child(more_menu("paper-more", abs_url))
+            .child(more_menu(
+                "paper-more",
+                abs_url,
+                Some(Self::retranslate_action(cx)),
+            ))
     }
 
     fn segment(

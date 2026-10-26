@@ -7,13 +7,14 @@
 //! «Español» / «Original» y los botones de leído, guardar y abrir en el
 //! navegador. En el PC no hay deslizamientos (L4): eso es del móvil.
 
+use std::rc::Rc;
 use std::time::Duration;
 
 use atalaya_api::{Entry, EntrySummary, EntryUpdate, Id, Progress, TranslationState};
 use chrono::Utc;
 use gpui::prelude::*;
 use gpui::{
-    Animation, AnimationExt, Context, ElementId, Entity, EventEmitter, FontWeight, Pixels,
+    Animation, AnimationExt, App, Context, ElementId, Entity, EventEmitter, FontWeight, Pixels,
     SharedString, Task, Window, div, px, relative,
 };
 use gpui_component::scroll::ScrollableElement;
@@ -24,7 +25,7 @@ use crate::assets::Icon;
 use crate::palette::Palette;
 use crate::ui::format::{ago_phrase, code_in_pre, progress_fraction, progress_text, split_pending};
 use crate::ui::fulltext::FullText;
-use crate::ui::widgets::{bar, icon, icon_button, more_menu};
+use crate::ui::widgets::{MenuAction, bar, icon, icon_button, more_menu};
 
 /// Cada cuánto se vuelve a pedir un artículo o un paper que se está traduciendo.
 pub const POLL_EVERY: Duration = Duration::from_secs(3);
@@ -223,6 +224,57 @@ impl Reader {
         .detach();
     }
 
+    /// «Volver a traducir» (#91): borra la traducción del artículo y, si es un
+    /// paper de arXiv, la de su paper, y vuelve a pedir el artículo. Con un
+    /// 409 (se está traduciendo) no borra nada y lo dice.
+    fn retranslate(&mut self, cx: &mut Context<Self>) {
+        let Load::Ready(entry) = &self.load else {
+            return;
+        };
+        let id = entry.summary.id;
+        let arxiv_id = entry.arxiv_id.clone();
+        let client = match super::client(cx) {
+            Ok(client) => client,
+            Err(error) => {
+                self.action_error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
+        self.action_error = None;
+        cx.spawn(async move |this, cx| {
+            let paper = arxiv_id.clone();
+            let forgotten = cx
+                .background_spawn(
+                    async move { client.forget_translations(Some(id), paper.as_deref()) },
+                )
+                .await;
+            this.update(cx, |this, cx| {
+                if this.summary.as_ref().map(|s| s.id) != Some(id) {
+                    return;
+                }
+                // Lo que ya se borró se vuelve a pedir, aunque otra cosa haya fallado.
+                if forgotten.entry || forgotten.paper {
+                    this.fetch(id, Duration::ZERO, cx);
+                    this.full_text
+                        .update(cx, |full, cx| full.open(arxiv_id, cx));
+                }
+                this.action_error = forgotten.error;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// La opción «Volver a traducir» del menú, que vuelve a este lector.
+    fn retranslate_action(cx: &mut Context<Self>) -> MenuAction {
+        let reader = cx.weak_entity();
+        Rc::new(move |cx: &mut App| {
+            reader.update(cx, |reader, cx| reader.retranslate(cx)).ok();
+        })
+    }
+
     fn set_summary(&mut self, summary: EntrySummary, cx: &mut Context<Self>) {
         if let Load::Ready(entry) = &mut self.load {
             entry.summary.read = summary.read;
@@ -315,7 +367,7 @@ impl Reader {
                         move |_, _, cx| cx.open_url(&url)
                     }),
             )
-            .child(more_menu("more", url))
+            .child(more_menu("more", url, Some(Self::retranslate_action(cx))))
     }
 
     fn segment(
