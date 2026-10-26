@@ -63,7 +63,7 @@ fn push_translated(pieces: &mut Vec<Piece>, html: &str) {
 }
 
 /// Si hay letras o cifras fuera de las etiquetas.
-fn has_text(html: &str) -> bool {
+pub(crate) fn has_text(html: &str) -> bool {
     let mut in_tag = false;
     for c in html.chars() {
         match c {

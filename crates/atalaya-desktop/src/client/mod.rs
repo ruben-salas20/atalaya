@@ -87,6 +87,12 @@ impl ApiClient {
         })
     }
 
+    /// La dirección del servicio, sin barra final: las fórmulas del paper
+    /// completo van contra ella (ADR 0010).
+    pub fn service_url(&self) -> &str {
+        &self.base_url
+    }
+
     /// La última petición se respondió con la copia en disco.
     pub fn is_offline(&self) -> bool {
         self.offline.load(Ordering::Relaxed)
