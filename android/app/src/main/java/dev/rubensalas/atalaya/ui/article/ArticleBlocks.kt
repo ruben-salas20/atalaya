@@ -2,6 +2,7 @@ package dev.rubensalas.atalaya.ui.article
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,7 +25,11 @@ import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -117,28 +122,34 @@ fun ArticleBlock(block: Block, muted: Boolean, modifier: Modifier = Modifier) {
             Text(block.marker, fontSize = 17.sp, lineHeight = 27.sp, color = c.text2, modifier = Modifier.width(22.dp))
             Text(t.text, inlineContent = t.inline, fontSize = 17.sp, lineHeight = 27.sp, color = color)
         }
-        is Block.Image -> Column(modifier.padding(bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            // Las figuras van sobre una tarjeta blanca: las transparentes con texto negro se ven también en tema oscuro.
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(FIGURE_CARD_CORNER))
-                    .background(Color.White)
-                    .padding(FIGURE_CARD_PADDING),
-            ) {
-                AsyncImage(
-                    model = block.url,
-                    contentDescription = block.alt.ifBlank { null },
-                    contentScale = ContentScale.FillWidth,
-                    modifier = Modifier
+        is Block.Image -> {
+            // Tocar la figura la abre a pantalla completa (issue #95).
+            var viewing by rememberSaveable { mutableStateOf(false) }
+            Column(modifier.padding(bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Las figuras van sobre una tarjeta blanca: las transparentes con texto negro se ven también en tema oscuro.
+                Box(
+                    Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 48.dp),
-                )
+                        .clip(RoundedCornerShape(FIGURE_CARD_CORNER))
+                        .background(Color.White)
+                        .clickable(onClickLabel = "Ver a pantalla completa") { viewing = true }
+                        .padding(FIGURE_CARD_PADDING),
+                ) {
+                    AsyncImage(
+                        model = block.url,
+                        contentDescription = block.alt.ifBlank { null },
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp),
+                    )
+                }
+                block.caption?.let {
+                    val t = rich(it, 13f, c.text3)
+                    Text(t.text, inlineContent = t.inline, fontSize = 13.sp, lineHeight = 18.sp, color = c.text3)
+                }
             }
-            block.caption?.let {
-                val t = rich(it, 13f, c.text3)
-                Text(t.text, inlineContent = t.inline, fontSize = 13.sp, lineHeight = 18.sp, color = c.text3)
-            }
+            if (viewing) ImageViewer(block) { viewing = false }
         }
         is Block.Formula -> FormulaBlock(block, color, modifier.fillMaxWidth().padding(bottom = 14.dp))
         is Block.Table -> ArticleTable(block, color, modifier.padding(bottom = 14.dp))
@@ -236,7 +247,7 @@ private fun FormulaImage(formula: FormulaSvg, latex: String, modifier: Modifier)
 class RichContent(val text: AnnotatedString, val inline: Map<String, InlineTextContent>)
 
 @Composable
-private fun rich(text: RichText, fontSizeSp: Float, color: Color): RichContent {
+internal fun rich(text: RichText, fontSizeSp: Float, color: Color): RichContent {
     val c = Atalaya.colors
     val annotated = remember(text, c) {
         buildAnnotatedString {
