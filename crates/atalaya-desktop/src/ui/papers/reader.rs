@@ -600,6 +600,7 @@ impl PaperReader {
         };
         let base = client.service_url().to_owned();
         let font_px = f32::from(body_size);
+        let ex_px = font_px * full::EX_PER_FONT;
         let color = hex(p.text);
         let style = text_style(cx);
         let mut out = Vec::new();
@@ -616,7 +617,7 @@ impl PaperReader {
                             .selectable(true)
                             .style(style.clone())
                             .image_source(move |uri: &SharedUri| {
-                                ImageSource::Image(formulas.image(&uri.to_string(), &color))
+                                ImageSource::Image(formulas.image(&uri.to_string(), &color, ex_px))
                             });
                         let view = if piece.pending {
                             view.text_color(p.text3)
@@ -631,7 +632,9 @@ impl PaperReader {
                                 .into_any_element(),
                         );
                     }
-                    Part::Block(formula) => out.push(self.formula_block(&formula, &color, p)),
+                    Part::Block(formula) => {
+                        out.push(self.formula_block(&formula, &color, ex_px, p))
+                    }
                 }
             }
         }
@@ -639,8 +642,8 @@ impl PaperReader {
     }
 
     /// Una fórmula aparte: su imagen centrada, con el número de la ecuación si lo tiene.
-    fn formula_block(&self, formula: &Formula, color: &str, p: &Palette) -> AnyElement {
-        let image = self.formulas.image(&formula.url, color);
+    fn formula_block(&self, formula: &Formula, color: &str, ex_px: f32, p: &Palette) -> AnyElement {
+        let image = self.formulas.image(&formula.url, color, ex_px);
         div()
             .flex()
             .items_center()

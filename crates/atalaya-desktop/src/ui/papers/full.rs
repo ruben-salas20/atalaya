@@ -10,7 +10,7 @@ use crate::ui::format::has_text;
 
 /// Cuánto mide un `ex` (la altura de la «x») respecto de la letra del texto.
 /// MathJax se mide en `ex` de la fuente del texto; 0,5 es lo habitual.
-const EX_PER_FONT: f32 = 0.5;
+pub(crate) const EX_PER_FONT: f32 = 0.5;
 
 /// Un trozo del paper, en orden: HTML para el visor, o una fórmula aparte.
 #[derive(Debug, Clone, PartialEq)]
@@ -37,7 +37,10 @@ pub fn parts(html: &str, base: &str, font_px: f32) -> Vec<Part> {
     let ex = font_px * EX_PER_FONT;
     let mut parts = Vec::new();
     let mut text = String::new();
-    let mut rest = html;
+    // El visor recorta el espacio final de un `span`: «<span>1 </span>Introducción»
+    // salía «1Introducción». Un espacio duro no se recorta.
+    let html = html.replace(" </span>", "\u{a0}</span>");
+    let mut rest = html.as_str();
     while let Some(start) = next_img(rest) {
         let Some(len) = rest[start..].find('>') else {
             break;
@@ -78,6 +81,12 @@ pub fn parts(html: &str, base: &str, font_px: f32) -> Vec<Part> {
                  style=\"width: {width:.1}px; height: {height:.1}px\"></span>"
             ));
             rest = &rest[end..];
+            // El espacio que sigue a la fórmula también se recorta: «w en» salía
+            // «wen». Va como espacio duro.
+            if let Some(after) = rest.strip_prefix(' ') {
+                text.push('\u{a0}');
+                rest = after;
+            }
         }
     }
     text.push_str(rest);
@@ -102,10 +111,11 @@ pub fn formula_urls(html: &str, base: &str) -> Vec<String> {
     urls
 }
 
-/// Cambia el color `currentColor` del SVG por el del texto del tema, y quita
-/// el tamaño de la raíz: el tamaño lo pone la app, en píxeles, no el SVG en
-/// `ex`, que el pintor de imágenes no entiende.
-pub fn recolor_svg(svg: &str, color: &str) -> String {
+/// Cambia el color `currentColor` del SVG por el del texto del tema, y pasa
+/// el tamaño de la raíz de `ex` a píxeles, al doble para que se vea nítido.
+/// Sin tamaño, el SVG se rasteriza al de su `viewBox` (miles de píxeles por
+/// fórmula) y la app llegaba a gastar varios GB.
+pub fn recolor_svg(svg: &str, color: &str, ex_px: f32) -> String {
     let svg = svg.replace("currentColor", color);
     let Some(start) = svg.find("<svg") else {
         return svg;
@@ -114,8 +124,35 @@ pub fn recolor_svg(svg: &str, color: &str) -> String {
         return svg;
     };
     let root = &svg[start..start + len];
-    let root = remove_attr(&remove_attr(root, "width"), "height");
+    let root = ex_attr_to_px(&ex_attr_to_px(root, "width", ex_px), "height", ex_px);
     format!("{}{}{}", &svg[..start], root, &svg[start + len..])
+}
+
+/// `name="5.4ex"` de la etiqueta pasa a `name="{5.4 × ex_px × 2}"`. Sin
+/// valor en `ex`, se quita.
+fn ex_attr_to_px(tag: &str, name: &str, ex_px: f32) -> String {
+    let needle = format!(" {name}=\"");
+    let Some(start) = tag.find(&needle) else {
+        return tag.to_owned();
+    };
+    let value_start = start + needle.len();
+    let Some(close) = tag[value_start..].find('"') else {
+        return tag.to_owned();
+    };
+    let end = value_start + close + 1;
+    let value = &tag[value_start..end - 1];
+    match value
+        .strip_suffix("ex")
+        .and_then(|v| v.trim().parse::<f32>().ok())
+    {
+        Some(ex) => format!(
+            "{} {name}=\"{:.1}\"{}",
+            &tag[..start],
+            ex * ex_px * 2.0,
+            &tag[end..]
+        ),
+        None => format!("{}{}", &tag[..start], &tag[end..]),
+    }
 }
 
 /// Un `<img>` que empieza en `from`, no `<imgfoo>`.
@@ -210,19 +247,6 @@ fn flush(parts: &mut Vec<Part>, text: &mut String) {
 }
 
 /// Quita un atributo de una etiqueta de apertura, si lo tiene.
-fn remove_attr(tag: &str, name: &str) -> String {
-    let needle = format!(" {name}=\"");
-    let Some(start) = tag.find(&needle) else {
-        return tag.to_owned();
-    };
-    let value_start = start + needle.len();
-    let Some(close) = tag[value_start..].find('"') else {
-        return tag.to_owned();
-    };
-    let end = value_start + close + 1;
-    format!("{}{}", &tag[..start], &tag[end..])
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -231,6 +255,33 @@ mod tests {
 
     fn inline(src: &str, style: &str) -> String {
         format!("<img class=\"atalaya-formula\" src=\"{src}\" alt=\"x&lt;y\" style=\"{style}\">")
+    }
+
+    #[test]
+    fn space_after_an_inline_formula_survives() {
+        let html = format!(
+            "<p>a {} en b</p>",
+            inline("/formulas/a/1.svg", "width: 2ex; height: 2ex")
+        );
+        let Part::Text(text) = &parts(&html, BASE, 16.0)[0] else {
+            panic!()
+        };
+        assert!(text.contains("</span>\u{a0}en b"), "{text}");
+    }
+
+    #[test]
+    fn trailing_space_of_a_span_survives() {
+        let parts = parts(
+            "<h2><span class=\"ltx_tag\">1 </span>Introducción</h2>",
+            "http://s",
+            16.0,
+        );
+        assert_eq!(
+            parts,
+            vec![Part::Text(
+                "<h2><span class=\"ltx_tag\">1\u{a0}</span>Introducción</h2>".into()
+            )]
+        );
     }
 
     #[test]
@@ -288,15 +339,15 @@ mod tests {
     }
 
     #[test]
-    fn current_color_takes_the_theme_color_and_drops_the_root_size() {
+    fn current_color_takes_the_theme_color_and_the_root_size_goes_to_pixels() {
         let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"5.429ex\" \
                    height=\"2ex\" viewBox=\"0 -750 2400 900\" role=\"img\">\
                    <g fill=\"currentColor\" stroke-width=\"40\"><path d=\"M0 0\"/></g></svg>";
-        let out = recolor_svg(svg, "#f1f1f1");
+        let out = recolor_svg(svg, "#f1f1f1", 8.0);
         assert!(!out.contains("currentColor"), "{out}");
         assert!(out.contains("fill=\"#f1f1f1\""), "{out}");
-        assert!(!out.contains("width=\"5.429ex\""), "{out}");
-        assert!(!out.contains("height=\"2ex\""), "{out}");
+        assert!(out.contains(" width=\"86.9\""), "{out}");
+        assert!(out.contains(" height=\"32.0\""), "{out}");
         assert!(out.contains("viewBox=\"0 -750 2400 900\""), "{out}");
         assert!(out.contains("stroke-width=\"40\""), "{out}");
     }
@@ -375,7 +426,7 @@ mod tests {
             text.contains("<span><img class=\"atalaya-formula\""),
             "{text}"
         );
-        assert!(text.contains("</span> bits</p>"), "{text}");
+        assert!(text.contains("</span>\u{a0}bits</p>"), "{text}");
     }
 
     #[test]
