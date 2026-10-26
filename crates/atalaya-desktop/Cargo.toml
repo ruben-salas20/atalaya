@@ -15,6 +15,9 @@ chrono.workspace = true
 futures = "0.3"
 gpui = { package = "gpui-pre", version = "=0.3.9" }
 gpui-component = "=0.8.0"
+# El lector de papers usa el `TextView` de gpui-base directamente: solo él
+# deja cambiar la imagen de cada `<img>` (las fórmulas, ADR 0010).
+gpui-base = "=0.8.0"
 gpui-kit-assets = "=0.8.0"
 # Sin estas dos funciones GPUI no abre ventanas: arranca sin pantalla.
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.9", features = ["wayland", "x11"] }
