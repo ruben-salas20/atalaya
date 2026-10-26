@@ -630,7 +630,14 @@ impl PaperReader {
                             .selectable(true)
                             .style(style.clone())
                             .image_source(move |uri: &SharedUri| {
-                                ImageSource::Image(formulas.image(&uri.to_string(), &color, ex_px))
+                                // Solo las fórmulas salen del registro; las
+                                // figuras de arXiv se bajan como cualquier
+                                // imagen (#88).
+                                if full::is_formula_url(uri) {
+                                    ImageSource::Image(formulas.image(uri, &color, ex_px))
+                                } else {
+                                    uri.clone().into()
+                                }
                             });
                         let view = if piece.pending || dimmed {
                             view.text_color(p.text3)
