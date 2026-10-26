@@ -22,10 +22,19 @@ sealed interface SpanStyleKind {
 
     /** Párrafo que aún no está traducido: en la versión parcial, se pinta en gris claro (ADR 0015). */
     data object Pending : SpanStyleKind
+
+    /** Fórmula en línea: su imagen SVG, sus medidas en ex y su LaTeX. Ocupa un [FORMULA_PLACEHOLDER]. */
+    data class Formula(val url: String, val size: FormulaSize, val latex: String) : SpanStyleKind
 }
 
 /** La clase que el servicio pone a cada párrafo que falta por traducir (ADR 0015). */
 const val PENDING_CLASS = "atalaya-pendiente"
+
+/**
+ * Una celda de tabla. [header] es true en las de cabecera (`th`). [colspan] es
+ * cuántas columnas ocupa (`colspan` del HTML): mide [colspan] anchos de celda.
+ */
+data class TableCell(val text: RichText, val header: Boolean = false, val colspan: Int = 1)
 
 sealed interface Block {
     data class Paragraph(val text: RichText) : Block
@@ -35,6 +44,12 @@ sealed interface Block {
     /** Un elemento de lista. [marker] es «•» o «3.»; va vacío en el segundo párrafo de un mismo elemento. */
     data class ListItem(val marker: String, val depth: Int, val text: RichText) : Block
     data class Image(val url: String, val alt: String, val caption: RichText? = null) : Block
+
+    /** Fórmula aparte, centrada en su línea (ADR 0010). */
+    data class Formula(val url: String, val size: FormulaSize, val latex: String) : Block
+
+    /** Tabla: filas de celdas. Si es ancha, se desplaza de lado. */
+    data class Table(val rows: List<List<TableCell>>) : Block
     data class Code(val text: String) : Block
     data object Rule : Block
 }
@@ -51,6 +66,9 @@ private val CONTAINERS = setOf(
     "figcaption", "dl", "dt", "dd", "details", "summary", "hgroup", "body",
 )
 private val WHITESPACE = Regex("\\s+")
+
+/** Tope de `colspan`: un valor absurdo no deja la tabla sin medida. */
+private const val MAX_COLSPAN = 50
 
 private class HtmlWalker {
     private val blocks = mutableListOf<Block>()
@@ -96,7 +114,7 @@ private class HtmlWalker {
                 flush()
                 blocks += Block.Rule
             }
-            "img" -> image(el, caption = null)
+            "img" -> if (el.hasClass(FORMULA_CLASS)) formula(el) else image(el, caption = null)
             "figure", "picture" -> figure(el)
             "iframe", "video", "audio", "embed", "object" -> embed(el)
             "pre" -> {
@@ -165,40 +183,58 @@ private class HtmlWalker {
 
     private fun table(el: Element) {
         flush()
-        for (row in el.select("tr")) {
-            var first = true
-            for (cell in row.children()) {
-                if (cell.normalName() != "td" && cell.normalName() != "th") continue
-                if (!first) appendText(" · ")
-                first = false
-                walkChildren(cell)
+        // Solo las filas de esta tabla: las de una tabla anidada van dentro de su celda.
+        val rows = el.select("tr")
+            .filter { row -> row.parents().firstOrNull { it.normalName() == "table" } == el }
+            .map { row ->
+                row.children().filter { it.normalName() == "td" || it.normalName() == "th" }
+                    .map { cell ->
+                        TableCell(
+                            text = inlineText(cell) ?: RichText(""),
+                            header = cell.normalName() == "th",
+                            colspan = cell.attr("colspan").toIntOrNull()?.coerceIn(1, MAX_COLSPAN) ?: 1,
+                        )
+                    }
             }
-            flush()
-        }
+            .filter { it.isNotEmpty() }
+        if (rows.isNotEmpty()) blocks += Block.Table(rows)
     }
 
     private fun figure(el: Element) {
         // Las webs que cargan las imágenes tarde repiten cada una dentro de <noscript>.
-        val images = el.select("img").filter { img -> img.parents().none { it.normalName() == "noscript" } }
+        val images = el.select("img").filter { img ->
+            img.parents().none { it.normalName() == "noscript" } && !img.hasClass(FORMULA_CLASS)
+        }
         if (images.isEmpty()) {
             flush()
             walkChildren(el)
             flush()
             return
         }
-        val captionEl = el.selectFirst("figcaption")
-        val caption = captionEl?.let { c ->
-            HtmlWalker().apply { walkChildren(c) }.finish()
-                .mapNotNull { (it as? Block.Paragraph)?.text }
-                .reduceOrNull(::joinLines)
-        }
+        val caption = el.selectFirst("figcaption")?.let { inlineText(it) }
         images.forEachIndexed { i, img -> image(img, caption.takeIf { i == images.lastIndex }) }
         // Lo que no es imagen ni pie (un enlace de créditos, por ejemplo) sigue como texto.
         flush()
         for (child in el.children()) {
-            if (child.normalName() !in setOf("img", "picture", "figcaption", "source") && child.select("img").isEmpty()) walk(child)
+            val holdsImage = child.select("img").any { !it.hasClass(FORMULA_CLASS) }
+            if (child.normalName() !in setOf("img", "picture", "figcaption", "source") && !holdsImage) walk(child)
         }
         flush()
+    }
+
+    private fun formula(img: Element) {
+        val src = img.absUrl("src").ifBlank { img.attr("src") }
+        if (src.isBlank()) return
+        val size = parseFormulaStyle(img.attr("style"))
+        val latex = img.attr("alt")
+        if (img.hasClass(FORMULA_BLOCK_CLASS)) {
+            flush()
+            blocks += Block.Formula(src, size, latex)
+        } else {
+            val start = text.length
+            text.append(FORMULA_PLACEHOLDER)
+            spans += Span(start, text.length, SpanStyleKind.Formula(src, size, latex))
+        }
     }
 
     private fun image(img: Element, caption: RichText?) {
@@ -248,6 +284,20 @@ private class HtmlWalker {
             null -> Block.Paragraph(rich)
         }
     }
+}
+
+/** El texto de un elemento como un solo bloque de texto: sus párrafos, uno detrás de otro. Null si no tiene texto. */
+private fun inlineText(el: Element): RichText? =
+    HtmlWalker().apply { walkChildren(el) }.finish().flatMap(::textsOf).reduceOrNull(::joinLines)
+
+/** Los textos de un bloque. Una tabla anidada aporta el de todas sus celdas. */
+private fun textsOf(block: Block): List<RichText> = when (block) {
+    is Block.Paragraph -> listOf(block.text)
+    is Block.Heading -> listOf(block.text)
+    is Block.Quote -> listOf(block.text)
+    is Block.ListItem -> listOf(block.text)
+    is Block.Table -> block.rows.flatten().map { it.text }
+    else -> emptyList()
 }
 
 private fun joinLines(a: RichText, b: RichText): RichText {

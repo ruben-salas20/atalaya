@@ -2,6 +2,8 @@ package dev.rubensalas.atalaya.ui.papers
 
 import dev.rubensalas.atalaya.data.api.ApiException
 import dev.rubensalas.atalaya.data.api.EntrySummary
+import dev.rubensalas.atalaya.data.api.FullPaper
+import dev.rubensalas.atalaya.data.api.FullPaperState
 import dev.rubensalas.atalaya.data.api.Paper
 import dev.rubensalas.atalaya.data.api.PaperField
 import dev.rubensalas.atalaya.data.api.PaperPage
@@ -57,6 +59,10 @@ class PaperViewModelsTest {
             last = papers.removeFirstOrNull() ?: last
             return last
         }
+
+        override suspend fun fullPaper(arxivId: String): FullPaper = FullPaper(FullPaperState.NotRequested)
+
+        override suspend fun requestFullPaper(arxivId: String): FullPaper = FullPaper(FullPaperState.NotRequested)
 
         override suspend fun savePaper(arxivId: String): EntrySummary {
             if (failSave) throw ApiException(null, "No se pudo conectar con el servicio")

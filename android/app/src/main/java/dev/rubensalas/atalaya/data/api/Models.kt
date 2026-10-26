@@ -316,3 +316,30 @@ data class Paper(
     val summary: PaperSummary
         get() = PaperSummary(arxivId, title, originalTitle, titleTranslated, authors, publishedAt, category, savedEntryId)
 }
+
+/** Estado del paper completo traducido (P7, ADR 0010). */
+@Serializable
+enum class FullPaperState {
+    /** Nadie lo ha pedido: la app muestra «Leer completo». */
+    @SerialName("not_requested") NotRequested,
+    /** arXiv no tiene versión HTML: quedan el resumen y el PDF. */
+    @SerialName("not_available") NotAvailable,
+    /** Se está traduciendo; `html` trae lo que ya hay (ADR 0015). */
+    @SerialName("pending") Pending,
+    @SerialName("done") Done,
+    /** Falló; pedirlo otra vez lo reintenta. */
+    @SerialName("failed") Failed,
+}
+
+/**
+ * `GET /api/papers/{arxiv_id}/full` y `POST` (lo pide; responde igual). Con
+ * `Pending`, `html` trae lo traducido y el resto en el original, dentro de
+ * `atalaya-pendiente`. Las fórmulas son imágenes SVG con una ruta relativa
+ * (`/formulas/ID/N.svg`), sin clave: la app la resuelve contra su servicio.
+ */
+@Serializable
+data class FullPaper(
+    val state: FullPaperState,
+    val html: String? = null,
+    val progress: Progress? = null,
+)

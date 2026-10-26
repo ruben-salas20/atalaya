@@ -157,7 +157,7 @@ private fun ArticleTopBar(state: ArticleUiState, onBack: () -> Unit, vm: Article
 
 /** La barra fina con «Traduciendo… N de M», bajo la cabecera (ADR 0015). Su alto es fijo: no mueve el texto al refrescar. */
 @Composable
-private fun TranslationProgress(progress: Progress) {
+internal fun TranslationProgress(progress: Progress) {
     val c = Atalaya.colors
     Column(Modifier.fillMaxWidth().height(PROGRESS_STRIP_HEIGHT)) {
         LinearProgressIndicator(

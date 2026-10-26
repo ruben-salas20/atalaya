@@ -117,6 +117,13 @@ class AtalayaClient(
     override suspend fun paper(arxivId: String): Paper = get("api/papers") { addPathSegment(arxivId) }
 
     /** 201 si lo acaba de guardar y 200 si ya estaba: en los dos casos, el artículo de Miniflux. */
+    /** El estado del paper completo, sin pedir nada (P7). */
+    override suspend fun fullPaper(arxivId: String): FullPaper = get("api/papers") { addPathSegment(arxivId).addPathSegment("full") }
+
+    /** Pide el paper completo. Responde con el mismo estado que [fullPaper]; `Failed` lo reintenta. */
+    override suspend fun requestFullPaper(arxivId: String): FullPaper =
+        decode(execute("POST", "api/papers", null) { addPathSegment(arxivId).addPathSegment("full") })
+
     override suspend fun savePaper(arxivId: String): EntrySummary =
         decode(execute("POST", "api/papers", null) { addPathSegment(arxivId).addPathSegment("save") })
 

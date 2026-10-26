@@ -1,6 +1,7 @@
 package dev.rubensalas.atalaya.data.papers
 
 import dev.rubensalas.atalaya.data.api.EntrySummary
+import dev.rubensalas.atalaya.data.api.FullPaper
 import dev.rubensalas.atalaya.data.api.Id
 import dev.rubensalas.atalaya.data.api.Paper
 import dev.rubensalas.atalaya.data.api.PaperPage
@@ -17,6 +18,8 @@ interface PapersApi {
     suspend fun searchPapers(query: PaperQuery): PaperPage
     suspend fun paper(arxivId: String): Paper
     suspend fun savePaper(arxivId: String): EntrySummary
+    suspend fun fullPaper(arxivId: String): FullPaper
+    suspend fun requestFullPaper(arxivId: String): FullPaper
 }
 
 /**
@@ -39,6 +42,8 @@ class PapersRepository(
     suspend fun translate(q: String): QueryTranslation = api.translatePaperQuery(q)
     suspend fun search(query: PaperQuery): PaperPage = api.searchPapers(query)
     suspend fun paper(arxivId: String): Paper = api.paper(arxivId)
+    suspend fun fullPaper(arxivId: String): FullPaper = api.fullPaper(arxivId)
+    suspend fun requestFullPaper(arxivId: String): FullPaper = api.requestFullPaper(arxivId)
 
     suspend fun save(arxivId: String): EntrySummary {
         val entry = api.savePaper(arxivId)
