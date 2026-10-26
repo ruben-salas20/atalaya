@@ -442,6 +442,7 @@ dependencies = [
  "atalaya-api",
  "chrono",
  "futures",
+ "gpui-base",
  "gpui-component",
  "gpui-kit-assets",
  "gpui-pre",

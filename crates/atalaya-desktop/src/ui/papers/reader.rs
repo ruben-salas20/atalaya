@@ -6,25 +6,32 @@
 //! segundos. Guardar no se deshace aquí, igual que en Android: se quita
 //! desde Guardados.
 
+use std::sync::Arc;
 use std::time::Duration;
 
-use atalaya_api::{EntrySummary, Paper, PaperSummary, TranslationState};
+use atalaya_api::{EntrySummary, FullPaper, FullPaperState, Paper, PaperSummary, TranslationState};
 use gpui::prelude::*;
 use gpui::{
-    Context, ElementId, EventEmitter, FontWeight, Pixels, SharedString, Task, Window, div, px,
-    relative,
+    AnyElement, App, Context, ElementId, EventEmitter, FontWeight, HighlightStyle, Hsla,
+    ImageSource, Overflow, Pixels, SharedString, SharedUri, StyleRefinement, Task, Window, div,
+    img, px, relative,
 };
+use gpui_base::text::{TextView, TextViewStyle};
 use gpui_component::scroll::ScrollableElement;
-use gpui_component::text::TextView;
 use gpui_component::tooltip::Tooltip;
 
 use super::format::{abstract_paragraphs, paper_date};
+use super::formulas::Formulas;
+use super::full::{self, Formula, Part};
 use crate::assets::Icon;
 use crate::palette::Palette;
-use crate::ui::reader::{progress, toast};
+use crate::ui::format::{code_in_pre, split_pending};
+use crate::ui::reader::{progress, toast, translation_progress};
 use crate::ui::widgets::{bar, icon, icon_button, more_menu};
 
 const POLL_EVERY: Duration = Duration::from_secs(3);
+/// Cuántas fórmulas se bajan a la vez.
+const FORMULA_BATCH: usize = 8;
 
 pub enum PaperReaderEvent {
     /// Se guardó: la fila de resultados y el menú deben reflejarlo.
@@ -54,6 +61,13 @@ pub struct PaperReader {
     saving: bool,
     action_error: Option<String>,
     _fetch: Task<()>,
+    /// El paper completo (P7, ADR 0010), tal como lo dio el último `GET` o `POST`.
+    full: Option<FullPaper>,
+    full_error: Option<String>,
+    /// Se está pidiendo el paper completo (`POST`), para no pedirlo dos veces.
+    requesting: bool,
+    formulas: Arc<Formulas>,
+    _full: Task<()>,
 }
 
 impl EventEmitter<PaperReaderEvent> for PaperReader {}
@@ -67,6 +81,11 @@ impl Default for PaperReader {
             saving: false,
             action_error: None,
             _fetch: Task::ready(()),
+            full: None,
+            full_error: None,
+            requesting: false,
+            formulas: Arc::new(Formulas::new()),
+            _full: Task::ready(()),
         }
     }
 }
@@ -79,6 +98,11 @@ impl PaperReader {
         self.lang = Lang::Spanish;
         self.saving = false;
         self.action_error = None;
+        self.full = None;
+        self.full_error = None;
+        self.requesting = false;
+        self.formulas.forget_failed();
+        self.load_full(id.clone(), Duration::ZERO, cx);
         self.fetch(id, Duration::ZERO, cx);
         cx.notify();
     }
@@ -351,6 +375,290 @@ impl PaperReader {
             .on_click(cx.listener(|this, _, _, cx| this.save(cx)))
     }
 
+    /// Lee el paper completo (`GET`). Si el servicio lo está traduciendo,
+    /// lo vuelve a pedir cada pocos segundos (ADR 0015).
+    fn load_full(&mut self, arxiv_id: String, delay: Duration, cx: &mut Context<Self>) {
+        let client = match crate::ui::client(cx) {
+            Ok(client) => client,
+            Err(error) => {
+                self.full_error = Some(error);
+                return;
+            }
+        };
+        self._full = cx.spawn(async move |this, cx| {
+            if !delay.is_zero() {
+                cx.background_executor().timer(delay).await;
+            }
+            let id = arxiv_id.clone();
+            let result = cx
+                .background_spawn(async move { client.full_paper(&id) })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.is_current(&arxiv_id) {
+                    this.receive_full(arxiv_id, result, cx);
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+    }
+
+    /// Pide el paper completo (`POST`), que lo pone en marcha si hace falta,
+    /// y sigue su avance.
+    fn request_full(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.summary.as_ref().map(|s| s.arxiv_id.clone()) else {
+            return;
+        };
+        let client = match crate::ui::client(cx) {
+            Ok(client) => client,
+            Err(error) => {
+                self.full_error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
+        self.requesting = true;
+        self.full_error = None;
+        self._full = cx.spawn(async move |this, cx| {
+            let rid = id.clone();
+            let result = cx
+                .background_spawn(async move { client.request_full_paper(&rid) })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.is_current(&id) {
+                    this.receive_full(id, result, cx);
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        cx.notify();
+    }
+
+    fn receive_full(
+        &mut self,
+        arxiv_id: String,
+        result: Result<FullPaper, String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.requesting = false;
+        match result {
+            Ok(full) => {
+                let pending = full.state == FullPaperState::Pending;
+                self.full_error = None;
+                if let (Some(html), Ok(client)) = (full.html.as_deref(), crate::ui::client(cx)) {
+                    let urls = full::formula_urls(html, client.service_url());
+                    self.fetch_formulas(urls, cx);
+                }
+                self.full = Some(full);
+                if pending {
+                    self.load_full(arxiv_id, POLL_EVERY, cx);
+                }
+            }
+            Err(error) => {
+                // Un fallo de red mientras se traduce no para la lectura.
+                if self
+                    .full
+                    .as_ref()
+                    .is_some_and(|f| f.state == FullPaperState::Pending)
+                {
+                    self.load_full(arxiv_id, POLL_EVERY, cx);
+                } else {
+                    self.full_error = Some(error);
+                }
+            }
+        }
+    }
+
+    /// Baja en segundo plano las fórmulas que aún no están, de a lotes. Cada
+    /// lote avisa al terminar para que el texto se repinte.
+    fn fetch_formulas(&self, urls: Vec<String>, cx: &mut Context<Self>) {
+        let missing = self.formulas.take_missing(urls);
+        if missing.is_empty() {
+            return;
+        }
+        let Ok(client) = crate::ui::client(cx) else {
+            return;
+        };
+        let formulas = self.formulas.clone();
+        cx.spawn(async move |this, cx| {
+            for batch in missing.chunks(FORMULA_BATCH) {
+                let tasks: Vec<_> = batch
+                    .iter()
+                    .map(|url| {
+                        let client = client.clone();
+                        let url = url.clone();
+                        cx.background_spawn(async move {
+                            let svg = client.formula_svg(&url);
+                            (url, svg)
+                        })
+                    })
+                    .collect();
+                for task in tasks {
+                    let (url, svg) = task.await;
+                    match svg {
+                        Ok(svg) => formulas.loaded(&url, svg),
+                        Err(_) => formulas.failed(&url),
+                    }
+                }
+                this.update(cx, |_, cx| cx.notify()).ok();
+            }
+        })
+        .detach();
+    }
+
+    /// El texto completo, debajo del resumen: pedirlo, su avance y el HTML del
+    /// servicio con sus fórmulas (ADR 0010).
+    fn full_section(
+        &self,
+        arxiv_id: &str,
+        p: &Palette,
+        body_size: Pixels,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(full) = self.full.as_ref() else {
+            return match &self.full_error {
+                Some(error) => note(error, p).into_any_element(),
+                None => div().into_any_element(),
+            };
+        };
+        let mut section = div().flex().flex_col().mt(px(36.)).child(
+            div()
+                .text_size(px(12.))
+                .text_color(p.text3)
+                .mb(px(10.))
+                .child("TEXTO COMPLETO"),
+        );
+        if let Some(error) = &self.full_error {
+            section = section.child(note(error, p).mb(px(10.)));
+        }
+        match full.state {
+            FullPaperState::NotRequested => {
+                section = section.child(self.full_action("Leer completo", p, cx))
+            }
+            FullPaperState::NotAvailable => {
+                section = section.child(note(
+                    "arXiv no tiene versión HTML de este paper. Quedan el resumen y el PDF.",
+                    p,
+                ))
+            }
+            FullPaperState::Failed => {
+                section = section
+                    .child(note("No se pudo traducir el texto completo.", p).mb(px(10.)))
+                    .child(self.full_action("Reintentar", p, cx))
+            }
+            FullPaperState::Pending | FullPaperState::Done => {
+                if full.state == FullPaperState::Pending {
+                    let bar = match full.progress {
+                        Some(avance) => translation_progress(avance, p).into_any_element(),
+                        None => progress(p).into_any_element(),
+                    };
+                    section = section.child(div().mb(px(10.)).child(bar));
+                }
+                section = section.children(self.full_parts(arxiv_id, full, p, body_size, cx));
+            }
+        }
+        section.into_any_element()
+    }
+
+    /// Botón relleno de «Leer completo» y «Reintentar». Mientras se pide, no
+    /// responde.
+    fn full_action(&self, label: &'static str, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let busy = self.requesting;
+        div()
+            .id("paper-full-action")
+            .flex()
+            .flex_none()
+            .items_center()
+            .h(px(42.))
+            .px(px(20.))
+            .rounded(px(21.))
+            .bg(p.accent)
+            .text_color(p.on_accent)
+            .text_size(px(14.5))
+            .font_weight(FontWeight::MEDIUM)
+            .child(if busy { "Pidiendo…" } else { label })
+            .when(!busy, |d| {
+                d.cursor_pointer()
+                    .on_click(cx.listener(|this, _, _, cx| this.request_full(cx)))
+            })
+            .into_any_element()
+    }
+
+    /// Los trozos del HTML del servicio, en orden: texto con sus fórmulas en
+    /// línea, y las fórmulas aparte, centradas.
+    fn full_parts(
+        &self,
+        arxiv_id: &str,
+        full: &FullPaper,
+        p: &Palette,
+        body_size: Pixels,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let (Some(html), Ok(client)) = (full.html.as_deref(), crate::ui::client(cx)) else {
+            return Vec::new();
+        };
+        let base = client.service_url().to_owned();
+        let font_px = f32::from(body_size);
+        let color = hex(p.text);
+        let style = text_style(cx);
+        let mut out = Vec::new();
+        let mut n = 0;
+        for piece in split_pending(html) {
+            for part in full::parts(&piece.html, &base, font_px) {
+                n += 1;
+                match part {
+                    Part::Text(text) => {
+                        let id = SharedString::from(format!("full-{arxiv_id}-{n}"));
+                        let formulas = self.formulas.clone();
+                        let color = color.clone();
+                        let view = TextView::html(id, code_in_pre(&text))
+                            .selectable(true)
+                            .style(style.clone())
+                            .image_source(move |uri: &SharedUri| {
+                                ImageSource::Image(formulas.image(&uri.to_string(), &color))
+                            });
+                        let view = if piece.pending {
+                            view.text_color(p.text3)
+                        } else {
+                            view
+                        };
+                        out.push(
+                            div()
+                                .text_size(body_size)
+                                .line_height(relative(1.65))
+                                .child(view)
+                                .into_any_element(),
+                        );
+                    }
+                    Part::Block(formula) => out.push(self.formula_block(&formula, &color, p)),
+                }
+            }
+        }
+        out
+    }
+
+    /// Una fórmula aparte: su imagen centrada, con el número de la ecuación si lo tiene.
+    fn formula_block(&self, formula: &Formula, color: &str, p: &Palette) -> AnyElement {
+        let image = self.formulas.image(&formula.url, color);
+        div()
+            .flex()
+            .items_center()
+            .justify_center()
+            .gap(px(16.))
+            .py(px(8.))
+            .child(
+                img(ImageSource::Image(image))
+                    .w(px(formula.width))
+                    .h(px(formula.height))
+                    .flex_none(),
+            )
+            .when_some(formula.number.clone(), |d, number| {
+                d.child(div().text_color(p.text2).child(number))
+            })
+            .into_any_element()
+    }
+
     fn article(
         &self,
         summary: &PaperSummary,
@@ -479,6 +787,7 @@ impl PaperReader {
                                 p,
                             )),
                     )
+                    .child(self.full_section(&summary.arxiv_id, p, body_size, cx))
                     .into_any_element()
             }
             (Load::Failed(error), None) => div()
@@ -512,6 +821,63 @@ impl PaperReader {
             )
             .overflow_y_scrollbar()
     }
+}
+
+/// Un texto corto de aviso, en gris.
+fn note(text: &str, p: &Palette) -> gpui::Div {
+    div()
+        .text_size(px(13.))
+        .text_color(p.text2)
+        .child(text.to_owned())
+}
+
+/// El color del tema en `#rrggbb`, para cambiar `currentColor` del SVG.
+fn hex(color: Hsla) -> String {
+    let rgb = color.to_rgb();
+    let channel = |c: f32| (c * 255.).round().clamp(0., 255.) as u8;
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        channel(rgb.r),
+        channel(rgb.g),
+        channel(rgb.b)
+    )
+}
+
+/// El estilo del visor de texto, con las tablas en su propio desplazamiento:
+/// una tabla ancha se recorre con su barra y no corta el texto (ADR 0010).
+/// Es el de `gpui-component` (`base_text_view_style`), con esa única
+/// diferencia.
+fn text_style(cx: &App) -> TextViewStyle {
+    let theme = gpui_component::Theme::global(cx);
+    let radius = theme.semantic_tokens().radius.md;
+    let mut table = StyleRefinement::default();
+    table.overflow.x = Some(Overflow::Scroll);
+    table.corner_radii.top_left = Some(radius.into());
+    table.corner_radii.top_right = Some(radius.into());
+    table.corner_radii.bottom_left = Some(radius.into());
+    table.corner_radii.bottom_right = Some(radius.into());
+    let code_block = StyleRefinement {
+        corner_radii: table.corner_radii.clone(),
+        ..Default::default()
+    };
+    let table_head = StyleRefinement::default()
+        .bg(theme.table_head)
+        .text_color(theme.table_head_foreground);
+    TextViewStyle::default()
+        .with_foreground(theme.foreground)
+        .with_muted_foreground(theme.muted_foreground)
+        .with_link(theme.link)
+        .with_selection(theme.selection)
+        .with_code_background(theme.muted)
+        .with_border(theme.border)
+        .with_code_block(code_block)
+        .with_table(table)
+        .with_table_head(table_head)
+        .with_inline_code(HighlightStyle {
+            background_color: Some(theme.accent),
+            ..Default::default()
+        })
+        .with_dark(theme.is_dark())
 }
 
 /// El resumen llega en texto plano y se pinta como HTML: `<` o `&` en un
