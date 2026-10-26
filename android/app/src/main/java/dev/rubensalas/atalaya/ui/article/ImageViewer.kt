@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -118,17 +119,29 @@ fun ImageViewer(image: Block.Image, onDismiss: () -> Unit) {
                             scaleY = transform.zoom
                             translationX = transform.offset.x
                             translationY = transform.offset.y
-                        }
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.White)
-                        .padding(8.dp),
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
+                    // La tarjeta se ajusta a la figura: sin proporción conocida aún, ocupa el ancho.
+                    var ratio by remember { mutableFloatStateOf(0f) }
+                    val viewportRatio = if (viewport.height > 0f) viewport.width / viewport.height else 1f
+                    val card = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White)
+                        .padding(8.dp)
                     AsyncImage(
                         model = image.url,
                         contentDescription = image.alt.ifBlank { null },
                         contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(),
+                        onSuccess = { state ->
+                            val size = state.painter.intrinsicSize
+                            if (size.width > 0f && size.height > 0f) ratio = size.width / size.height
+                        },
+                        modifier = if (ratio > 0f) {
+                            card.aspectRatio(ratio, matchHeightConstraintsFirst = ratio < viewportRatio)
+                        } else {
+                            card.fillMaxWidth()
+                        },
                     )
                 }
             }
