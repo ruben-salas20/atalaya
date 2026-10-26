@@ -4,7 +4,9 @@
 //!
 //! Lee de la entrada estándar una lista `[{"id": …, "html": …}]` y escribe
 //! otra con, por artículo, los párrafos traducidos (`segmentos`), los que
-//! quedaron en inglés (`en_ingles`) y el HTML final (`html`).
+//! quedaron en inglés (`en_ingles`), el HTML final (`html`) y, por párrafo,
+//! los segundos desde que empezó el artículo hasta que estuvo listo
+//! (`segundos`, #32).
 //!
 //! Uso: `cargo run -q -p atalaya-server --example traducir_parrafos -- --url URL --model MODELO < entrada.json`
 
@@ -28,6 +30,7 @@ struct Resultado {
     segmentos: usize,
     en_ingles: usize,
     html: String,
+    segundos: Vec<f32>,
 }
 
 #[tokio::main]
@@ -56,6 +59,8 @@ async fn main() -> Result<(), String> {
         let parts = split(&articulo.html);
         let mut traducidos = Vec::new();
         let (mut segmentos, mut en_ingles) = (0, 0);
+        let started = std::time::Instant::now();
+        let mut segundos = Vec::new();
         for part in &parts {
             if let Part::Translate(text) = part {
                 let segment = translate_segment(&llama, text).await?;
@@ -64,6 +69,7 @@ async fn main() -> Result<(), String> {
                     en_ingles += 1;
                 }
                 traducidos.push(segment.html);
+                segundos.push(started.elapsed().as_secs_f32());
             }
         }
         eprintln!(
@@ -75,6 +81,7 @@ async fn main() -> Result<(), String> {
             segmentos,
             en_ingles,
             html: assemble(&parts, &traducidos),
+            segundos,
         });
     }
     println!(
