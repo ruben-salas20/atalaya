@@ -81,7 +81,7 @@ fun PaperScreen(container: AppContainer, arxivId: String, onBack: () -> Unit) {
     val vm: PaperViewModel = viewModel(
         key = "paper-$arxivId",
         factory = viewModelFactory {
-            initializer { PaperViewModel(arxivId, container.papers, serviceUrl = { container.settings.current().serviceUrl }) }
+            initializer { PaperViewModel(arxivId, container.papers, container.list, serviceUrl = { container.settings.current().serviceUrl }) }
         },
     )
     val state by vm.state.collectAsStateWithLifecycle()
@@ -162,6 +162,13 @@ private fun PaperActions(paper: Paper, state: PaperUiState, vm: PaperViewModel) 
             Icon(Icons.Filled.MoreVert, contentDescription = "Más opciones")
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(
+                text = { Text("Volver a traducir") },
+                onClick = {
+                    menu = false
+                    vm.retranslate()
+                },
+            )
             DropdownMenuItem(
                 text = { Text("Compartir el enlace") },
                 onClick = {

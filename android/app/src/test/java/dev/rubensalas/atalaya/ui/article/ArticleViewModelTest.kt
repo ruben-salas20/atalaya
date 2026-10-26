@@ -1,6 +1,7 @@
 package dev.rubensalas.atalaya.ui.article
 
 import dev.rubensalas.atalaya.data.api.ApiException
+import dev.rubensalas.atalaya.data.api.Cleanup
 import dev.rubensalas.atalaya.data.api.Entry
 import dev.rubensalas.atalaya.data.api.EntryPage
 import dev.rubensalas.atalaya.data.api.EntryQuery
@@ -50,6 +51,16 @@ class ArticleViewModelTest {
         override suspend fun entries(query: EntryQuery): EntryPage = throw UnsupportedOperationException()
         override suspend fun markAllRead(scope: MarkAllReadQuery) = Unit
         override suspend fun markSynced() = Unit
+        override suspend fun translationCleanupPreview(): Cleanup = throw UnsupportedOperationException()
+        override suspend fun cleanupTranslations(): Cleanup = throw UnsupportedOperationException()
+
+        val forgotten = mutableListOf<Id>()
+        var failDelete: ApiException? = null
+
+        override suspend fun deleteTranslation(id: Id) {
+            failDelete?.let { throw it }
+            forgotten += id
+        }
 
         override suspend fun entry(id: Id): Entry {
             opened++
@@ -75,6 +86,14 @@ class ArticleViewModelTest {
         override suspend fun searchPapers(query: PaperQuery): PaperPage = throw UnsupportedOperationException()
         override suspend fun paper(arxivId: String): Paper = throw UnsupportedOperationException()
         override suspend fun savePaper(arxivId: String): EntrySummary = throw UnsupportedOperationException()
+
+        val forgottenPapers = mutableListOf<String>()
+        var failDelete: ApiException? = null
+
+        override suspend fun deletePaperTranslation(arxivId: String) {
+            failDelete?.let { throw it }
+            forgottenPapers += arxivId
+        }
 
         override suspend fun fullPaper(arxivId: String): FullPaper {
             fullReads += arxivId
@@ -287,6 +306,61 @@ class ArticleViewModelTest {
         assertEquals("No se pudo guardar", vm.state.value.message)
         vm.dismissMessage()
         assertNull(vm.state.value.message)
+    }
+
+    @Test
+    fun retranslateForgetsTheLocalCopyAndReloads() = with(scope) {
+        val vm = newVm()
+        runCurrent()
+        repo.responses += ENTRY.copy(translation = TranslationState.Pending)
+        vm.retranslate()
+        runCurrent()
+        assertEquals(listOf<Id>(7), repo.forgotten)
+        assertTrue(papersApi.forgottenPapers.isEmpty())
+        // Una lectura al abrir y otra al volver a cargar, después de borrar.
+        assertEquals(2, repo.opened)
+        assertEquals(TranslationState.Pending, vm.state.value.entry!!.translation)
+        assertNull(vm.state.value.message)
+    }
+
+    @Test
+    fun retranslatingAPaperForgetsItsPaperTranslationAndTheFullText() = with(scope) {
+        repo.responses += ENTRY.copy(arxivId = "2610.08812", translation = TranslationState.NotNeeded)
+        val vm = newVm()
+        runCurrent()
+        papersApi.fullReads.clear()
+        vm.retranslate()
+        runCurrent()
+        assertEquals(listOf<Id>(7), repo.forgotten)
+        assertEquals(listOf("2610.08812"), papersApi.forgottenPapers)
+        // El texto completo se vuelve a pedir: la traducción del paper se borró entera.
+        assertEquals(listOf("2610.08812"), papersApi.fullReads)
+    }
+
+    @Test
+    fun conflictShowsTheServiceMessageAndForgetsNothing() = with(scope) {
+        val vm = newVm()
+        runCurrent()
+        repo.failDelete = ApiException(409, "Se está traduciendo")
+        vm.retranslate()
+        runCurrent()
+        assertTrue(repo.forgotten.isEmpty())
+        assertEquals(1, repo.opened)
+        assertEquals("Se está traduciendo", vm.state.value.message)
+    }
+
+    @Test
+    fun paperConflictAfterTheArticleWasForgottenStillReloads() = with(scope) {
+        repo.responses += ENTRY.copy(arxivId = "2610.08812", translation = TranslationState.NotNeeded)
+        val vm = newVm()
+        runCurrent()
+        papersApi.failDelete = ApiException(409, "Se está traduciendo")
+        vm.retranslate()
+        runCurrent()
+        // El artículo ya se borró en el servicio y en el móvil: la pantalla tiene que reflejarlo.
+        assertEquals(listOf<Id>(7), repo.forgotten)
+        assertEquals(2, repo.opened)
+        assertEquals("Se está traduciendo", vm.state.value.message)
     }
 
     @Test

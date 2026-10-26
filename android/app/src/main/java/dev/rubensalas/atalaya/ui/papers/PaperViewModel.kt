@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dev.rubensalas.atalaya.data.api.ApiException
 import dev.rubensalas.atalaya.data.api.Paper
 import dev.rubensalas.atalaya.data.api.TranslationState
+import dev.rubensalas.atalaya.data.list.ListRepository
 import dev.rubensalas.atalaya.data.papers.PapersRepository
 import dev.rubensalas.atalaya.ui.article.ArticleVersion
 import dev.rubensalas.atalaya.ui.article.Block
@@ -77,6 +78,8 @@ data class PaperUiState(
 class PaperViewModel(
     private val arxivId: String,
     private val repo: PapersRepository,
+    /** Para la copia del artículo guardado, si el paper está en Guardados (#91). */
+    private val list: ListRepository,
     /** Dirección del servicio. Las fórmulas del paper completo son rutas relativas a ella (ADR 0010). */
     private val serviceUrl: suspend () -> String = { "" },
     private val parseDispatcher: CoroutineDispatcher = Dispatchers.Default,
@@ -118,6 +121,28 @@ class PaperViewModel(
         active = value
         fullText.setActive(value)
         if (value) startPolling() else pollJob?.cancel()
+    }
+
+    /**
+     * «Volver a traducir» (#91): borra la traducción del paper, texto completo incluido,
+     * y la del artículo guardado si lo hay. Con 409 no borra nada y lo dice.
+     */
+    fun retranslate() {
+        val paper = _state.value.paper ?: return
+        viewModelScope.launch {
+            var forgotten = false
+            try {
+                repo.deleteTranslation(arxivId)
+                forgotten = true
+                paper.savedEntryId?.let { list.deleteTranslation(it) }
+                load()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ApiException) {
+                if (forgotten) load()
+                _state.update { it.copy(message = e.message.orEmpty()) }
+            }
+        }
     }
 
     fun choose(version: ArticleVersion) {

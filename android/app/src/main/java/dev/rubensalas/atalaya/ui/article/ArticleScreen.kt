@@ -214,6 +214,13 @@ private fun ArticleActions(entry: Entry, vm: ArticleViewModel) {
                 },
             )
             DropdownMenuItem(
+                text = { Text("Volver a traducir") },
+                onClick = {
+                    menu = false
+                    vm.retranslate()
+                },
+            )
+            DropdownMenuItem(
                 text = { Text("Compartir el enlace") },
                 onClick = {
                     menu = false

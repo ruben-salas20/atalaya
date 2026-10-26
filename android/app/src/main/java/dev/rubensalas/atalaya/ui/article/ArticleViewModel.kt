@@ -127,6 +127,32 @@ class ArticleViewModel(
     /** «Leer completo» del paper de este artículo (#90). */
     fun readFull() = fullText.readFull(onFailed = { _state.update { it.copy(message = "No se pudo pedir el paper completo") } })
 
+    /**
+     * «Volver a traducir» (#91): borra la traducción del artículo y, si es un paper,
+     * la del paper. Con 409 (se está traduciendo) no borra nada y lo dice.
+     */
+    fun retranslate() {
+        val entry = _state.value.entry ?: return
+        viewModelScope.launch {
+            var forgotten = false
+            try {
+                repo.deleteTranslation(id)
+                forgotten = true
+                entry.arxivId?.let { arxivId ->
+                    papers.deleteTranslation(arxivId)
+                    fullText.open(arxivId)
+                }
+                load()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ApiException) {
+                // Si ya se borró la del artículo, la pantalla se recarga igualmente.
+                if (forgotten) load()
+                _state.update { it.copy(message = e.message.orEmpty()) }
+            }
+        }
+    }
+
     fun toggleStarred() {
         val entry = _state.value.entry ?: return
         change(EntryUpdate(starred = !entry.starred), if (entry.starred) "No se pudo quitar de guardados" else "No se pudo guardar")

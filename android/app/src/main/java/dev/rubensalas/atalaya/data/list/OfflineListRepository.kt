@@ -1,6 +1,7 @@
 package dev.rubensalas.atalaya.data.list
 
 import dev.rubensalas.atalaya.data.api.ApiException
+import dev.rubensalas.atalaya.data.api.Cleanup
 import dev.rubensalas.atalaya.data.api.AtalayaClient
 import dev.rubensalas.atalaya.data.api.Entry
 import dev.rubensalas.atalaya.data.api.EntryPage
@@ -163,6 +164,24 @@ class OfflineListRepository(
     }
 
     override suspend fun markSynced() = onSynced()
+
+    override suspend fun deleteTranslation(id: Id) {
+        client.deleteEntryTranslation(id)
+        // Sin la copia, al abrirlo se pide otra vez al servicio, que ya la traduce de nuevo (#91).
+        lock.withLock { dao.deleteContents(listOf(id)) }
+    }
+
+    override suspend fun translationCleanupPreview(): Cleanup = client.translationCleanupPreview()
+
+    override suspend fun cleanupTranslations(): Cleanup {
+        val done = client.cleanupTranslations()
+        // Lo mismo que en el servicio: el texto traducido de lo leído y no guardado sale también del móvil (#91).
+        lock.withLock {
+            val read = dao.entries().filter { it.read && !it.starred }.map { it.id }
+            if (read.isNotEmpty()) dao.deleteContents(read)
+        }
+        return done
+    }
 
     /**
      * Manda al servicio los cambios de leído y guardado apuntados sin red.

@@ -20,6 +20,7 @@ interface PapersApi {
     suspend fun savePaper(arxivId: String): EntrySummary
     suspend fun fullPaper(arxivId: String): FullPaper
     suspend fun requestFullPaper(arxivId: String): FullPaper
+    suspend fun deletePaperTranslation(arxivId: String)
 }
 
 /**
@@ -44,6 +45,9 @@ class PapersRepository(
     suspend fun paper(arxivId: String): Paper = api.paper(arxivId)
     suspend fun fullPaper(arxivId: String): FullPaper = api.fullPaper(arxivId)
     suspend fun requestFullPaper(arxivId: String): FullPaper = api.requestFullPaper(arxivId)
+
+    /** Borra la traducción del paper para volver a traducirlo (#91). */
+    suspend fun deleteTranslation(arxivId: String) = api.deletePaperTranslation(arxivId)
 
     suspend fun save(arxivId: String): EntrySummary {
         val entry = api.savePaper(arxivId)
