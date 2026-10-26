@@ -447,6 +447,7 @@ dependencies = [
  "gpui-kit-assets",
  "gpui-pre",
  "gpui-pre-platform",
+ "image",
  "reqwest",
  "serde",
  "serde_json",
