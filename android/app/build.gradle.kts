@@ -84,6 +84,7 @@ dependencies {
     implementation(libs.jsoup)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
+    implementation(libs.coil.svg)
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.junit)

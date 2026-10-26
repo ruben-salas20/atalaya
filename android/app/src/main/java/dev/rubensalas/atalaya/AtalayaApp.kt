@@ -1,7 +1,13 @@
 package dev.rubensalas.atalaya
 
 import android.app.Application
+import coil3.ImageLoader
+import coil3.PlatformContext
+import coil3.SingletonImageLoader
+import coil3.svg.SvgDecoder
 import dev.rubensalas.atalaya.data.api.AtalayaClient
+import dev.rubensalas.atalaya.data.formulas.FormulaSvgFetcherFactory
+import dev.rubensalas.atalaya.data.formulas.FormulaSvgKeyer
 import dev.rubensalas.atalaya.data.update.ReleaseClient
 import dev.rubensalas.atalaya.data.update.UpdateChecker
 import dev.rubensalas.atalaya.data.update.UpdateRepository
@@ -39,9 +45,18 @@ class AppContainer(app: Application, scope: CoroutineScope) {
     }
 }
 
-class AtalayaApp : Application() {
+class AtalayaApp : Application(), SingletonImageLoader.Factory {
     lateinit var container: AppContainer
         private set
+
+    // Las fórmulas del paper completo son SVG (ADR 0010); el resto de imágenes sigue como estaba.
+    override fun newImageLoader(context: PlatformContext): ImageLoader = ImageLoader.Builder(context)
+        .components {
+            add(SvgDecoder.Factory())
+            add(FormulaSvgKeyer)
+            add(FormulaSvgFetcherFactory(AtalayaClient.defaultHttpClient()))
+        }
+        .build()
 
     override fun onCreate() {
         super.onCreate()
