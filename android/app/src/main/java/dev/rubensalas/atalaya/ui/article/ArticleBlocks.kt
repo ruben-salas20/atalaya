@@ -18,7 +18,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -41,14 +40,14 @@ fun ArticleBlock(block: Block, muted: Boolean, modifier: Modifier = Modifier) {
     val color = if (muted) c.text3 else c.text
     when (block) {
         is Block.Paragraph -> Text(
-            rich(block.text, c.surface),
+            rich(block.text),
             fontSize = 17.sp,
             lineHeight = 27.sp,
             color = color,
             modifier = modifier.padding(bottom = 14.dp),
         )
         is Block.Heading -> Text(
-            rich(block.text, c.surface),
+            rich(block.text),
             fontSize = when (block.level) {
                 1, 2 -> 21.sp
                 3 -> 19.sp
@@ -62,7 +61,7 @@ fun ArticleBlock(block: Block, muted: Boolean, modifier: Modifier = Modifier) {
         is Block.Quote -> Row(modifier.padding(bottom = 14.dp)) {
             Box(Modifier.width(3.dp).heightIn(min = 24.dp).background(c.surface2))
             Text(
-                rich(block.text, c.surface),
+                rich(block.text),
                 fontSize = 17.sp,
                 lineHeight = 27.sp,
                 fontStyle = FontStyle.Italic,
@@ -75,7 +74,7 @@ fun ArticleBlock(block: Block, muted: Boolean, modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(block.marker, fontSize = 17.sp, lineHeight = 27.sp, color = c.text2, modifier = Modifier.width(22.dp))
-            Text(rich(block.text, c.surface), fontSize = 17.sp, lineHeight = 27.sp, color = color)
+            Text(rich(block.text), fontSize = 17.sp, lineHeight = 27.sp, color = color)
         }
         is Block.Image -> Column(modifier.padding(bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             AsyncImage(
@@ -89,7 +88,7 @@ fun ArticleBlock(block: Block, muted: Boolean, modifier: Modifier = Modifier) {
                     .background(c.surface),
             )
             block.caption?.let {
-                Text(rich(it, c.surface), fontSize = 13.sp, lineHeight = 18.sp, color = c.text3)
+                Text(rich(it), fontSize = 13.sp, lineHeight = 18.sp, color = c.text3)
             }
         }
         is Block.Code -> Text(
@@ -112,27 +111,32 @@ fun ArticleBlock(block: Block, muted: Boolean, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun rich(text: RichText, codeBackground: Color): AnnotatedString = remember(text, codeBackground) {
-    buildAnnotatedString {
-        append(text.text)
-        for (span in text.spans) {
-            when (val style = span.style) {
-                SpanStyleKind.Bold -> addStyle(SpanStyle(fontWeight = FontWeight.Bold), span.start, span.end)
-                SpanStyleKind.Italic -> addStyle(SpanStyle(fontStyle = FontStyle.Italic), span.start, span.end)
-                SpanStyleKind.Code -> addStyle(
-                    SpanStyle(fontFamily = FontFamily.Monospace, background = codeBackground),
-                    span.start,
-                    span.end,
-                )
-                // Los enlaces abren el navegador del sistema.
-                is SpanStyleKind.Link -> addLink(
-                    LinkAnnotation.Url(
-                        style.url,
-                        TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline)),
-                    ),
-                    span.start,
-                    span.end,
-                )
+private fun rich(text: RichText): AnnotatedString {
+    val c = Atalaya.colors
+    return remember(text, c) {
+        buildAnnotatedString {
+            append(text.text)
+            for (span in text.spans) {
+                when (val style = span.style) {
+                    SpanStyleKind.Bold -> addStyle(SpanStyle(fontWeight = FontWeight.Bold), span.start, span.end)
+                    SpanStyleKind.Italic -> addStyle(SpanStyle(fontStyle = FontStyle.Italic), span.start, span.end)
+                    SpanStyleKind.Code -> addStyle(
+                        SpanStyle(fontFamily = FontFamily.Monospace, background = c.surface),
+                        span.start,
+                        span.end,
+                    )
+                    // Lo que aún no está traducido, en gris claro (ADR 0015).
+                    SpanStyleKind.Pending -> addStyle(SpanStyle(color = c.text3), span.start, span.end)
+                    // Los enlaces abren el navegador del sistema.
+                    is SpanStyleKind.Link -> addLink(
+                        LinkAnnotation.Url(
+                            style.url,
+                            TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline)),
+                        ),
+                        span.start,
+                        span.end,
+                    )
+                }
             }
         }
     }

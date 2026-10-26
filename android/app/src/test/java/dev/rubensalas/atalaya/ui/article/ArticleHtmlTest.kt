@@ -118,4 +118,32 @@ class ArticleHtmlTest {
         assertEquals("Ver el contenido incrustado", p.text.text)
         assertTrue(p.text.spans.single().style is SpanStyleKind.Link)
     }
+
+    @Test
+    fun pendingSpanIsMarkedInsideAParagraph() {
+        val p = parseArticleHtml("<p>Hola. <span class=\"atalaya-pendiente\">Two.</span></p>").single() as Block.Paragraph
+        assertEquals("Hola. Two.", p.text.text)
+        assertEquals(listOf(Span(6, 10, SpanStyleKind.Pending)), p.text.spans)
+    }
+
+    @Test
+    fun pendingParagraphsAreEachMarked() {
+        val blocks = parseArticleHtml(
+            "<p>Hola</p><p><span class=\"atalaya-pendiente\">Two.</span></p><p><span class=\"atalaya-pendiente\">Three.</span></p>",
+        )
+        assertEquals(
+            listOf(
+                Block.Paragraph(RichText("Hola")),
+                Block.Paragraph(RichText("Two.", listOf(Span(0, 4, SpanStyleKind.Pending)))),
+                Block.Paragraph(RichText("Three.", listOf(Span(0, 6, SpanStyleKind.Pending)))),
+            ),
+            blocks,
+        )
+    }
+
+    @Test
+    fun otherSpansAreNotPending() {
+        val p = parseArticleHtml("<p>Hola <span>mundo</span></p>").single() as Block.Paragraph
+        assertTrue(p.text.spans.isEmpty())
+    }
 }

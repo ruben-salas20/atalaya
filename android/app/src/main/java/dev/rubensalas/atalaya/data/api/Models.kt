@@ -99,6 +99,10 @@ enum class TranslationState {
     @SerialName("failed") Failed,
 }
 
+/** Avance de una traducción en curso (ADR 0015): `done` de `total` párrafos. */
+@Serializable
+data class Progress(val done: Int, val total: Int)
+
 /**
  * `GET /api/entries/{id}`. Pedirlo pone en marcha la traducción del texto
  * completo (ADR 0003). En el JSON, los campos de [EntrySummary] van al mismo
@@ -121,8 +125,13 @@ data class Entry(
     /** HTML original (L7: el servicio ya pidió el artículo completo si hacía falta). */
     val content: String,
     val translation: TranslationState,
-    /** HTML en español, solo con [TranslationState.Done]. */
+    /**
+     * HTML en español. Con [TranslationState.Done], todo; con [TranslationState.Pending],
+     * lo traducido hasta ahora y el resto en inglés, en `span.atalaya-pendiente` (ADR 0015).
+     */
     @SerialName("translated_content") val translatedContent: String? = null,
+    /** Con [TranslationState.Pending], cuántos párrafos van (ADR 0015). Puede faltar. */
+    val progress: Progress? = null,
 ) {
     val summary: EntrySummary
         get() = EntrySummary(id, feedId, feedTitle, title, originalTitle, titleTranslated, lang, url, publishedAt, read, starred)
