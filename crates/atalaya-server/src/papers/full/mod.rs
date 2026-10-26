@@ -135,6 +135,18 @@ impl FullPapers {
         self.inner.running.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    pub fn is_running(&self, arxiv_id: &str) -> bool {
+        self.running().contains_key(arxiv_id)
+    }
+
+    pub fn forget_abstract_svgs(&self, arxiv_id: &str) {
+        self.inner
+            .abstract_svgs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(arxiv_id);
+    }
+
     /// El resumen original y el traducido en HTML con sus fórmulas, si el
     /// original tiene alguna (#80). Las fórmulas se convierten una vez por
     /// paper y se guardan.
