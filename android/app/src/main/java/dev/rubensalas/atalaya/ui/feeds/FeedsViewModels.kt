@@ -111,6 +111,8 @@ data class AddFeedUiState(
     val adding: Boolean = false,
     val error: String? = null,
     val done: Boolean = false,
+    /** El servicio no respondió a tiempo: el feed aparecerá en unos minutos (#48). */
+    val slow: Boolean = false,
 ) {
     val canAdd: Boolean
         get() = !adding && !searching && categoryId != null && !found.isNullOrEmpty()
@@ -181,8 +183,8 @@ class AddFeedViewModel(private val client: AtalayaClient) : ViewModel() {
         _state.update { it.copy(adding = true, error = null) }
         viewModelScope.launch {
             try {
-                client.addFeed(NewFeed(feedUrl = feed.feedUrl, categoryId = s.categoryId!!, crawler = s.crawler))
-                _state.update { it.copy(adding = false, done = true) }
+                val added = client.addFeed(NewFeed(feedUrl = feed.feedUrl, categoryId = s.categoryId!!, crawler = s.crawler))
+                _state.update { it.copy(adding = false, done = true, slow = added == null) }
             } catch (e: ApiException) {
                 _state.update { it.copy(adding = false, error = e.userMessage()) }
             }

@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.TimeUnit
 
 class AtalayaClientTest {
     private val server = MockWebServer()
@@ -164,5 +165,17 @@ class AtalayaClientTest {
         val e = runCatching { client.status() }.exceptionOrNull() as ApiException
         assertEquals(401, e.status)
         assertEquals("Falta la clave o no es correcta", e.message)
+    }
+
+    @Test
+    fun addFeedReturnsNullWhenTheServiceIsSlow() = runTest {
+        // #48: Miniflux puede tardar minutos en crear un feed con «artículo completo».
+        val slow = AtalayaClient(
+            config = { ServerConfig(server.url("/").toString(), "secreta") },
+            addFeedTimeoutSeconds = 1,
+        )
+        server.enqueue(MockResponse.Builder().body("{}").headersDelay(3, TimeUnit.SECONDS).build())
+        assertNull(slow.addFeed(NewFeed(feedUrl = "https://x/feed", categoryId = 1, crawler = true)))
+        assertEquals("/api/feeds", server.takeRequest().url.encodedPath)
     }
 }

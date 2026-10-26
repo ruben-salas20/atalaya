@@ -278,7 +278,7 @@ impl FeedsScreen {
             cx,
             move |client| client.add_feed(&new),
             |this, result, window, cx| match result {
-                Ok(feed) => {
+                Ok(Some(feed)) => {
                     let id = feed.id;
                     this.feeds.push(feed);
                     this.found.clear();
@@ -286,6 +286,19 @@ impl FeedsScreen {
                         .update(cx, |input, cx| input.set_value("", window, cx));
                     this.open_feed(id, window, cx);
                     this.message = Some(Ok("Feed añadido".into()));
+                    this.reload(cx);
+                    cx.emit(FeedsEvent::Changed);
+                }
+                // El servicio sigue creándolo aunque no haya respondido a tiempo (#48).
+                Ok(None) => {
+                    this.found.clear();
+                    this.url
+                        .update(cx, |input, cx| input.set_value("", window, cx));
+                    this.message = Some(Ok(
+                        "El feed se está creando: Miniflux descarga sus artículos. \
+                         Aparecerá en la lista en unos minutos."
+                            .into(),
+                    ));
                     this.reload(cx);
                     cx.emit(FeedsEvent::Changed);
                 }
