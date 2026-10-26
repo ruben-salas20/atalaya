@@ -134,3 +134,16 @@ Sus traducciones no se publican: las noticias son de otros medios y el repositor
 - noticia-09 · Ars Technica · [Ukraine learns to fight without Starlink as Musk plays politics with satellites](https://arstechnica.com/gadgets/2026/10/ukraine-learns-to-fight-without-starlink-as-musk-plays-politics-with-satellites/)
 - noticia-10 · Paul Graham · [Superlinear Returns](https://paulgraham.com/superlinear.html)
 
+
+## Etiquetas cortas en el texto completo (#47)
+
+La #17 cambió lo que se manda al modelo: en vez del HTML de cada párrafo, etiquetas cortas (`<tN>…</tN>`, `<tN/>`), que el servicio vuelve a convertir en HTML (PR #46). Se midió con `bench/traduccion/medir-parrafos.py`, que traduce las 10 noticias del conjunto de prueba con el código del servicio de cada commit, con `gemma-4-e4b-rapido`, el 2026-10-25.
+
+| Código | Commit | Párrafos | En inglés | Proporción |
+|---|---|---|---|---|
+| Antes (HTML) | `a0aabe3` | 232 | 8 | 3,4 % |
+| Después (etiquetas cortas) | `6102f21` | 232 | 1 | 0,4 % |
+
+Antes, los párrafos en inglés estaban en noticia-04 (1), noticia-07 (1), noticia-08 (3) y noticia-09 (3); después, solo queda 1 en noticia-08. El riesgo que se temía, que el modelo cambiara la forma de una etiqueta y el párrafo cayera en inglés, no aparece en esta medida. El cambio se queda.
+
+Los resultados completos, con las traducciones, están en ai-lab en `/data/bots/atalaya-datos/m47/`: no se publican porque las noticias son de otros medios.
