@@ -43,7 +43,12 @@ async fn list(
     State(state): State<AppState>,
     query: Result<Query<EntryQuery>, QueryRejection>,
 ) -> AppResult<Json<EntryPage>> {
-    let Query(query) = query.map_err(|e| invalid("parámetros no válidos", e.body_text()))?;
+    let Query(query) = query.map_err(|e| {
+        invalid(
+            "parámetros no válidos",
+            crate::error::detail_es(&e.body_text()),
+        )
+    })?;
     let place = state.papers.place().await;
     if let Some(needle) = needle(&query) {
         let (total, entries) = search(&state, &query, place, &needle).await?;
@@ -132,7 +137,8 @@ async fn open(
     State(state): State<AppState>,
     id: Result<Path<Id>, PathRejection>,
 ) -> AppResult<Json<Entry>> {
-    let Path(id) = id.map_err(|e| invalid("id no válido", e.body_text()))?;
+    let Path(id) =
+        id.map_err(|e| invalid("id no válido", crate::error::detail_es(&e.body_text())))?;
     let entry = state.miniflux.entry(id).await?;
     let title = title_of(&state, id).await;
     let (translation, translated_content) = state.translations.content(id).await;
@@ -156,8 +162,10 @@ async fn update(
     id: Result<Path<Id>, PathRejection>,
     change: Result<Json<EntryUpdate>, JsonRejection>,
 ) -> AppResult<Json<EntrySummary>> {
-    let Path(id) = id.map_err(|e| invalid("id no válido", e.body_text()))?;
-    let Json(change) = change.map_err(|e| invalid("cuerpo no válido", e.body_text()))?;
+    let Path(id) =
+        id.map_err(|e| invalid("id no válido", crate::error::detail_es(&e.body_text())))?;
+    let Json(change) =
+        change.map_err(|e| invalid("cuerpo no válido", crate::error::detail_es(&e.body_text())))?;
     // Se pide antes para responder 404 si no existe: Miniflux acepta marcar
     // un id que no existe sin quejarse.
     let mut entry = state.miniflux.entry(id).await?;
@@ -197,7 +205,12 @@ async fn mark_all_read(
     State(state): State<AppState>,
     query: Result<Query<MarkAllReadQuery>, QueryRejection>,
 ) -> AppResult<StatusCode> {
-    let Query(query) = query.map_err(|e| invalid("parámetros no válidos", e.body_text()))?;
+    let Query(query) = query.map_err(|e| {
+        invalid(
+            "parámetros no válidos",
+            crate::error::detail_es(&e.body_text()),
+        )
+    })?;
     match (query.feed_id, query.category_id) {
         (Some(feed), _) => state.miniflux.mark_feed_read(feed).await?,
         (None, Some(category)) => state.miniflux.mark_category_read(category).await?,

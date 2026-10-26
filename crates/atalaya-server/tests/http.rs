@@ -72,3 +72,56 @@ async fn empty_paper_search_is_a_bad_request() {
         .unwrap();
     assert_eq!(status(req).await, StatusCode::BAD_REQUEST);
 }
+
+/// Respuesta completa: código y mensaje del `ApiError`.
+async fn error_of(req: Request<Body>) -> (StatusCode, String) {
+    let (router, _dir) = test_app();
+    let res = router.oneshot(req).await.unwrap();
+    let status = res.status();
+    let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    (status, json["error"].as_str().unwrap().to_owned())
+}
+
+/// #45: los errores que genera axum llegan en español.
+#[tokio::test]
+async fn axum_errors_in_spanish() {
+    let post = |body: &'static str, json: bool| {
+        let mut req = Request::post("/api/feeds").header(header::AUTHORIZATION, "Bearer secreta");
+        if json {
+            req = req.header(header::CONTENT_TYPE, "application/json");
+        }
+        req.body(Body::from(body)).unwrap()
+    };
+
+    let (code, msg) = error_of(post("{\"feed_url\":", true)).await;
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+    assert!(msg.starts_with("El cuerpo no es JSON válido"), "{msg}");
+
+    let (code, msg) = error_of(post("{}", true)).await;
+    assert_eq!(code, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(msg.contains("falta el campo `feed_url`"), "{msg}");
+
+    let (code, msg) = error_of(post("{}", false)).await;
+    assert_eq!(code, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(msg, "Falta la cabecera Content-Type: application/json");
+
+    let req = Request::delete("/api/feeds/abc")
+        .header(header::AUTHORIZATION, "Bearer secreta")
+        .body(Body::empty())
+        .unwrap();
+    let (code, msg) = error_of(req).await;
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+    assert!(
+        msg.starts_with("La ruta no es válida: no se puede leer `abc`"),
+        "{msg}"
+    );
+
+    let req = Request::get("/no-existe").body(Body::empty()).unwrap();
+    assert_eq!(
+        error_of(req).await,
+        (StatusCode::NOT_FOUND, "Esa ruta no existe".to_owned())
+    );
+}
