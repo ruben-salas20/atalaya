@@ -337,7 +337,9 @@ class OfflineListRepository(
         dao.upsertContent(
             LocalContent(
                 id = fresh.id, author = fresh.author, content = fresh.content,
-                translation = fresh.translation.name, translatedContent = fresh.translatedContent,
+                translation = fresh.translation.name,
+                // Lo parcial (Pending) es de paso: solo se guarda la traducción completa (ADR 0015).
+                translatedContent = fresh.translatedContent.takeIf { fresh.translation == TranslationState.Done },
                 opened = opened || wasOpened,
             ),
         )

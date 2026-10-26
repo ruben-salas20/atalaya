@@ -19,7 +19,13 @@ sealed interface SpanStyleKind {
     data object Italic : SpanStyleKind
     data object Code : SpanStyleKind
     data class Link(val url: String) : SpanStyleKind
+
+    /** Párrafo que aún no está traducido: en la versión parcial, se pinta en gris claro (ADR 0015). */
+    data object Pending : SpanStyleKind
 }
+
+/** La clase que el servicio pone a cada párrafo que falta por traducir (ADR 0015). */
+const val PENDING_CLASS = "atalaya-pendiente"
 
 sealed interface Block {
     data class Paragraph(val text: RichText) : Block
@@ -106,6 +112,7 @@ private class HtmlWalker {
             "b", "strong" -> styled(el, SpanStyleKind.Bold)
             "i", "em", "cite", "dfn" -> styled(el, SpanStyleKind.Italic)
             "code", "kbd", "samp", "tt" -> styled(el, SpanStyleKind.Code)
+            "span" -> if (el.hasClass(PENDING_CLASS)) styled(el, SpanStyleKind.Pending) else walkChildren(el)
             "a" -> {
                 val href = el.absUrl("href").ifBlank { el.attr("href") }
                 if (href.isBlank() || href.startsWith("#") || href.startsWith("javascript:")) {

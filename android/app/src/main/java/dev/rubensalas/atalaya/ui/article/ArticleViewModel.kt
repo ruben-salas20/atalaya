@@ -6,6 +6,7 @@ import dev.rubensalas.atalaya.data.api.ApiException
 import dev.rubensalas.atalaya.data.api.Entry
 import dev.rubensalas.atalaya.data.api.EntryUpdate
 import dev.rubensalas.atalaya.data.api.Id
+import dev.rubensalas.atalaya.data.api.Progress
 import dev.rubensalas.atalaya.data.api.TranslationState
 import dev.rubensalas.atalaya.data.list.ListRepository
 import kotlinx.coroutines.CancellationException
@@ -31,12 +32,15 @@ data class ArticleUiState(
     /** Aviso de abajo que se va solo. */
     val message: String? = null,
     val original: List<Block> = emptyList(),
-    /** Solo cuando la traducción está hecha. */
+    /** El español: completo, o lo traducido hasta ahora mientras se traduce (ADR 0015). */
     val translated: List<Block>? = null,
     /** Lo que eligió Rubén en el selector. Sin elegir, se ve el español en cuanto existe. */
     val chosen: ArticleVersion? = null,
 ) {
     val translating: Boolean get() = entry?.translation == TranslationState.Pending
+
+    /** Avance de la traducción, solo mientras se traduce y el servicio lo dice. */
+    val progress: Progress? get() = entry?.progress?.takeIf { translating }
 
     /** El selector se ve si el artículo no estaba ya en español, y se puede tocar si hay traducción. */
     val showSelector: Boolean get() = entry != null && entry.translation != TranslationState.NotNeeded
@@ -151,9 +155,13 @@ class ArticleViewModel(
         val current = _state.value
         val original = if (current.entry?.content == fresh.content) current.original
         else withContext(parseDispatcher) { parseArticleHtml(fresh.content, fresh.url) }
+        // Con Pending llega lo traducido hasta ahora (ADR 0015); cada vuelta puede traer más, así que se vuelve a leer si cambió.
         val translated = fresh.translatedContent
-            ?.takeIf { fresh.translation == TranslationState.Done }
-            ?.let { html -> current.translated ?: withContext(parseDispatcher) { parseArticleHtml(html, fresh.url) } }
+            ?.takeIf { fresh.translation == TranslationState.Done || fresh.translation == TranslationState.Pending }
+            ?.let { html ->
+                if (current.entry?.translatedContent == html && current.translated != null) current.translated
+                else withContext(parseDispatcher) { parseArticleHtml(html, fresh.url) }
+            }
         _state.update { s ->
             // Leído y guardado los manda la app: puede haber un cambio en camino.
             val entry = s.entry?.let { fresh.copy(read = it.read, starred = it.starred) } ?: fresh
@@ -188,3 +196,10 @@ class ArticleViewModel(
         const val POLL_INTERVAL_MS = 3_000L
     }
 }
+
+/** «Traduciendo… 12 de 52». */
+fun translationProgressText(progress: Progress): String = "Traduciendo… ${progress.done} de ${progress.total}"
+
+/** La fracción de la barra, entre 0 y 1. Sin párrafos, 0. */
+fun translationFraction(progress: Progress): Float =
+    if (progress.total <= 0) 0f else (progress.done.toFloat() / progress.total).coerceIn(0f, 1f)

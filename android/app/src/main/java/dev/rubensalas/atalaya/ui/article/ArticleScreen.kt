@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -66,6 +68,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.rubensalas.atalaya.AppContainer
 import dev.rubensalas.atalaya.data.api.Entry
 import dev.rubensalas.atalaya.data.api.Id
+import dev.rubensalas.atalaya.data.api.Progress
 import dev.rubensalas.atalaya.data.api.TranslationState
 import dev.rubensalas.atalaya.ui.relativeTime
 import dev.rubensalas.atalaya.ui.theme.Atalaya
@@ -80,6 +83,8 @@ fun ArticleScreen(container: AppContainer, id: Id, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     val c = Atalaya.colors
     val snackbar = remember { SnackbarHostState() }
+    // Fuera de la rama del cuerpo: la posición de lectura sobrevive a cada versión nueva (ADR 0015).
+    val listState = rememberLazyListState()
 
     LifecycleEventEffect(Lifecycle.Event.ON_START) { vm.setActive(true) }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { vm.setActive(false) }
@@ -110,9 +115,10 @@ fun ArticleScreen(container: AppContainer, id: Id, onBack: () -> Unit) {
                 entry == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = c.text2)
                 }
-                else -> ArticleBody(entry, state)
+                else -> ArticleBody(entry, state, listState)
             }
-            if (state.translating) TranslatingToast(Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp))
+            // Con avance, la barra de arriba ya dice que se traduce: el aviso de abajo sobra.
+            if (state.translating && state.progress == null) TranslatingToast(Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp))
         }
     }
 }
@@ -134,18 +140,43 @@ private fun ArticleTopBar(state: ArticleUiState, onBack: () -> Unit, vm: Article
             colors = TopAppBarDefaults.topAppBarColors(containerColor = c.bg),
         )
         // Mientras se traduce, una barra fina ocupa el sitio de la línea (pantalla 4).
-        if (state.translating) {
-            LinearProgressIndicator(
+        // Con el avance del servicio, la barra se llena y dice cuántos párrafos van.
+        val progress = state.progress
+        when {
+            progress != null -> TranslationProgress(progress)
+            state.translating -> LinearProgressIndicator(
                 modifier = Modifier.fillMaxWidth().height(2.dp),
                 color = c.accent,
                 trackColor = c.surface2,
                 gapSize = 0.dp,
             )
-        } else {
-            HorizontalDivider(thickness = 1.dp, color = c.divider)
+            else -> HorizontalDivider(thickness = 1.dp, color = c.divider)
         }
     }
 }
+
+/** La barra fina con «Traduciendo… N de M», bajo la cabecera (ADR 0015). Su alto es fijo: no mueve el texto al refrescar. */
+@Composable
+private fun TranslationProgress(progress: Progress) {
+    val c = Atalaya.colors
+    Column(Modifier.fillMaxWidth().height(PROGRESS_STRIP_HEIGHT)) {
+        LinearProgressIndicator(
+            progress = { translationFraction(progress) },
+            modifier = Modifier.fillMaxWidth().height(2.dp),
+            color = c.accent,
+            trackColor = c.surface2,
+            gapSize = 0.dp,
+        )
+        Text(
+            translationProgressText(progress),
+            fontSize = 12.5.sp,
+            color = c.text2,
+            modifier = Modifier.padding(start = 20.dp, top = 4.dp),
+        )
+    }
+}
+
+private val PROGRESS_STRIP_HEIGHT = 26.dp
 
 @Composable
 private fun ArticleActions(entry: Entry, vm: ArticleViewModel) {
@@ -215,12 +246,13 @@ internal fun VersionSelector(showing: ArticleVersion, canSwitch: Boolean, onChoo
 }
 
 @Composable
-private fun ArticleBody(entry: Entry, state: ArticleUiState) {
+private fun ArticleBody(entry: Entry, state: ArticleUiState, listState: LazyListState) {
     val c = Atalaya.colors
     val uri = LocalUriHandler.current
     val muted = state.translating && state.showing == ArticleVersion.Original
     LazyColumn(
         Modifier.fillMaxSize(),
+        state = listState,
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 24.dp),
     ) {
         item(key = "head") {
@@ -242,7 +274,8 @@ private fun ArticleBody(entry: Entry, state: ArticleUiState) {
                 Note(entry, state)
             }
         }
-        itemsIndexed(state.blocks, key = { i, _ -> "${state.showing}-$i" }) { _, block ->
+        // La clave es solo la posición: al pasar del original al español, o al llegar más párrafos, no se recrean los bloques.
+        itemsIndexed(state.blocks, key = { i, _ -> "block-$i" }) { _, block ->
             ArticleBlock(block, muted = muted)
         }
         item(key = "web") {
@@ -267,7 +300,8 @@ private fun ArticleBody(entry: Entry, state: ArticleUiState) {
 @Composable
 private fun Note(entry: Entry, state: ArticleUiState) {
     val text = when {
-        state.showing == ArticleVersion.Spanish -> "Traducido"
+        // Mientras se traduce, lo dice la barra de arriba: aquí no hay que decir «Traducido» a medias.
+        state.showing == ArticleVersion.Spanish && !state.translating -> "Traducido"
         entry.translation == TranslationState.Failed -> "No se pudo traducir"
         else -> return
     }

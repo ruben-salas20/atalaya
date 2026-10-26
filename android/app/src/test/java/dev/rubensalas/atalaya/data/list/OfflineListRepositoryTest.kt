@@ -8,6 +8,7 @@ import dev.rubensalas.atalaya.data.api.EntryQuery
 import dev.rubensalas.atalaya.data.api.EntrySummary
 import dev.rubensalas.atalaya.data.api.EntryUpdate
 import dev.rubensalas.atalaya.data.api.Id
+import dev.rubensalas.atalaya.data.api.Progress
 import dev.rubensalas.atalaya.data.api.ServerConfig
 import dev.rubensalas.atalaya.data.api.Sidebar
 import dev.rubensalas.atalaya.data.api.SidebarCategory
@@ -152,6 +153,26 @@ class OfflineListRepositoryTest {
         service.entries[1] = service.entries[1]!!.copy(translation = TranslationState.Done, translatedContent = "<p>Hola</p>")
         assertFalse(repo.sync())
         assertEquals("<p>Hola</p>", dao.contents[1]!!.translatedContent)
+    }
+
+    @Test
+    fun aPartialTranslationIsShownButNotStored() = runTest {
+        val partial = "<p>Hola</p><p><span class=\"atalaya-pendiente\">Two.</span></p>"
+        service.entries[1] = service.entries[1]!!.copy(
+            translation = TranslationState.Pending, translatedContent = partial, progress = Progress(1, 2),
+        )
+        val shown = repo.entry(1)
+        assertEquals(partial, shown.translatedContent)
+        assertEquals(Progress(1, 2), shown.progress)
+        // Room guarda que sigue traduciéndose, pero no lo parcial: solo la traducción completa (ADR 0015).
+        assertEquals(TranslationState.Pending.name, dao.contents[1]!!.translation)
+        assertNull(dao.contents[1]!!.translatedContent)
+
+        service.entries[1] = service.entries[1]!!.copy(
+            translation = TranslationState.Done, translatedContent = "<p>Hola</p><p>Dos.</p>", progress = null,
+        )
+        repo.entry(1)
+        assertEquals("<p>Hola</p><p>Dos.</p>", dao.contents[1]!!.translatedContent)
     }
 
     @Test

@@ -8,6 +8,7 @@ import dev.rubensalas.atalaya.data.api.EntrySummary
 import dev.rubensalas.atalaya.data.api.EntryUpdate
 import dev.rubensalas.atalaya.data.api.Id
 import dev.rubensalas.atalaya.data.api.MarkAllReadQuery
+import dev.rubensalas.atalaya.data.api.Progress
 import dev.rubensalas.atalaya.data.api.Sidebar
 import dev.rubensalas.atalaya.data.api.TranslationState
 import dev.rubensalas.atalaya.data.list.ListRepository
@@ -102,6 +103,51 @@ class ArticleViewModelTest {
         vm.choose(ArticleVersion.Original)
         assertEquals("Hello", vm.state.value.title)
         assertEquals(listOf(Block.Paragraph(RichText("Hi"))), vm.state.value.blocks)
+    }
+
+    @Test
+    fun partialTranslationShowsSpanishWhileItGrows() = with(scope) {
+        val partial = "<p>Hola</p><p><span class=\"atalaya-pendiente\">Two.</span></p>"
+        repo.responses += ENTRY.copy(translation = TranslationState.Pending, translatedContent = partial, progress = Progress(1, 2))
+        repo.responses += ENTRY.copy(translation = TranslationState.Pending, translatedContent = "<p>Hola</p><p>Dos.</p>", progress = Progress(2, 2))
+        repo.responses += ENTRY.copy(translation = TranslationState.Done, translatedContent = "<p>Hola</p><p>Dos.</p>")
+        val vm = newVm()
+        vm.setActive(true)
+        runCurrent()
+
+        var s = vm.state.value
+        assertTrue(s.translating)
+        assertTrue(s.canSwitch)
+        assertEquals(ArticleVersion.Spanish, s.showing)
+        assertEquals(Progress(1, 2), s.progress)
+        assertEquals(
+            listOf(
+                Block.Paragraph(RichText("Hola")),
+                Block.Paragraph(RichText("Two.", listOf(Span(0, 4, SpanStyleKind.Pending)))),
+            ),
+            s.blocks,
+        )
+
+        // Llega más: se vuelve a leer el HTML aunque el bloque anterior ya estuviera.
+        advanceTimeBy(3_001)
+        s = vm.state.value
+        assertTrue(s.translating)
+        assertEquals(Progress(2, 2), s.progress)
+        assertEquals(listOf(Block.Paragraph(RichText("Hola")), Block.Paragraph(RichText("Dos."))), s.blocks)
+
+        advanceTimeBy(3_000)
+        s = vm.state.value
+        assertFalse(s.translating)
+        assertNull(s.progress)
+        assertEquals(listOf(Block.Paragraph(RichText("Hola")), Block.Paragraph(RichText("Dos."))), s.blocks)
+    }
+
+    @Test
+    fun progressTextAndFraction() {
+        assertEquals("Traduciendo… 12 de 52", translationProgressText(Progress(12, 52)))
+        assertEquals(0.5f, translationFraction(Progress(1, 2)), 0f)
+        assertEquals(0f, translationFraction(Progress(0, 0)), 0f)
+        assertEquals(1f, translationFraction(Progress(7, 5)), 0f)
     }
 
     @Test

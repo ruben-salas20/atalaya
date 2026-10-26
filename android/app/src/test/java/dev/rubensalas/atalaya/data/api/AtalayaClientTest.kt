@@ -47,6 +47,24 @@ class AtalayaClientTest {
         assertEquals(TranslationState.Pending, entry.translation)
         assertEquals("The Verge", entry.summary.feedTitle)
         assertNull(entry.translatedContent)
+        assertNull(entry.progress)
+    }
+
+    @Test
+    fun entryReadsProgressWhenThePartialIsThere() = runTest {
+        server.enqueue(
+            MockResponse(
+                body = """{"id":7,"feed_id":2,"feed_title":"The Verge","title":"Hola","original_title":"Hello",
+                "title_translated":true,"lang":"en","url":"https://x","published_at":"2026-10-23T10:00:00Z",
+                "read":false,"starred":false,"author":null,"content":"<p>Hello</p>","translation":"pending",
+                "translated_content":"<p>Hola</p><p><span class=\"atalaya-pendiente\">Two.</span></p>",
+                "progress":{"done":12,"total":52}}""",
+            ),
+        )
+        val entry = client.entry(7)
+        assertEquals(TranslationState.Pending, entry.translation)
+        assertEquals(Progress(12, 52), entry.progress)
+        assertEquals("<p>Hola</p><p><span class=\"atalaya-pendiente\">Two.</span></p>", entry.translatedContent)
     }
 
     @Test
