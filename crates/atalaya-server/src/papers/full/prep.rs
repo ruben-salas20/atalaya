@@ -125,6 +125,21 @@ impl Writer<'_> {
             self.equation(el);
             return;
         }
+        // Las figuras SVG de arXiv van en `<object data="…svg">`, que las apps
+        // no pintan: se pasan a `<img>`.
+        if name == "object"
+            && let Some(data) = v.attr("data")
+            && v.attr("type").is_none_or(|t| t.starts_with("image/"))
+        {
+            let src = resolver(self.base, data);
+            let class = v.attr("class").unwrap_or_default();
+            self.out.html.push_str(&format!(
+                "<img src=\"{}\" alt=\"Figura\" class=\"{}\">",
+                escapar(&src).replace('"', "&quot;"),
+                escapar(class).replace('"', "&quot;")
+            ));
+            return;
+        }
         // Etiqueta de apertura con los atributos que sirven.
         self.out.html.push('<');
         self.out.html.push_str(name);
@@ -651,6 +666,20 @@ mod tests {
         );
         assert!(!p.html.contains("Report issue"), "{}", p.html);
         assert!(p.html.contains("texto"));
+    }
+
+    #[test]
+    fn figuras_svg_en_object_pasan_a_img() {
+        let page = "<article class=\"ltx_document\"><figure>\
+            <object type=\"image/svg+xml\" data=\"2610.31646v1/fig1.svg\" class=\"ltx_graphics\" width=\"476\"></object>\
+            </figure></article>";
+        let p = prepare(page, "https://arxiv.org/html/");
+        assert!(
+            p.html.contains("<img src=\"https://arxiv.org/html/2610.31646v1/fig1.svg\" alt=\"Figura\" class=\"ltx_graphics\">"),
+            "{}",
+            p.html
+        );
+        assert!(!p.html.contains("<object"), "{}", p.html);
     }
 
     #[test]
