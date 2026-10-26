@@ -3,14 +3,13 @@ package dev.rubensalas.atalaya.ui.papers
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.rubensalas.atalaya.data.api.ApiException
-import dev.rubensalas.atalaya.data.api.FullPaper
-import dev.rubensalas.atalaya.data.api.FullPaperState
 import dev.rubensalas.atalaya.data.api.Paper
-import dev.rubensalas.atalaya.data.api.Progress
 import dev.rubensalas.atalaya.data.api.TranslationState
 import dev.rubensalas.atalaya.data.papers.PapersRepository
 import dev.rubensalas.atalaya.ui.article.ArticleVersion
 import dev.rubensalas.atalaya.ui.article.Block
+import dev.rubensalas.atalaya.ui.article.FullTextController
+import dev.rubensalas.atalaya.ui.article.FullTextState
 import dev.rubensalas.atalaya.ui.article.parseArticleHtml
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -34,12 +33,6 @@ data class PaperUiState(
     val saving: Boolean = false,
     /** Lo que eligió Rubén en el selector. Sin elegir, se ve el español en cuanto existe. */
     val chosen: ArticleVersion? = null,
-    /** El paper completo, como lo dijo el servicio la última vez (P7). */
-    val full: FullPaper? = null,
-    /** El texto completo en bloques. Se vuelve a leer solo si cambia el HTML. */
-    val fullBlocks: List<Block> = emptyList(),
-    /** Se acaba de pedir el paper completo y el servicio aún no contestó. */
-    val requestingFull: Boolean = false,
     /** El resumen original en bloques, si el servicio mandó HTML con fórmulas (#80). */
     val originalAbstractBlocks: List<Block> = emptyList(),
     /** Lo mismo para la traducción. */
@@ -47,13 +40,6 @@ data class PaperUiState(
 ) {
     val translating: Boolean get() = paper?.translation == TranslationState.Pending
 
-    val fullState: FullPaperState get() = full?.state ?: FullPaperState.NotRequested
-
-    /** Avance del paper completo, solo mientras se traduce y el servicio lo dice. */
-    val fullProgress: Progress? get() = full?.progress?.takeIf { fullState == FullPaperState.Pending }
-
-    /** Hay algo que consultar cada pocos segundos: el resumen o el paper completo. */
-    val polling: Boolean get() = translating || fullState == FullPaperState.Pending
     val showSelector: Boolean get() = paper != null && paper.translation != TranslationState.NotNeeded
     private val translated: String? get() = paper?.translatedAbstract?.takeIf { paper.translation == TranslationState.Done }
     val canSwitch: Boolean get() = translated != null
@@ -99,6 +85,10 @@ class PaperViewModel(
     private val _state = MutableStateFlow(PaperUiState())
     val state: StateFlow<PaperUiState> = _state.asStateFlow()
 
+    /** El paper completo (P7): lo comparte con el artículo de un paper, ver [FullTextController]. */
+    private val fullText = FullTextController(viewModelScope, repo, serviceUrl, parseDispatcher, pollInterval)
+    val full: StateFlow<FullTextState> = fullText.state
+
     private var active = false
     private var pollJob: Job? = null
 
@@ -111,7 +101,7 @@ class PaperViewModel(
         viewModelScope.launch {
             try {
                 apply(repo.paper(arxivId))
-                refreshFull()
+                fullText.open(arxivId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ApiException) {
@@ -121,25 +111,12 @@ class PaperViewModel(
     }
 
     /** «Leer completo» (P7): pide el paper entero. También sirve para reintentar tras un fallo. */
-    fun readFull() {
-        val s = _state.value
-        val askable = s.fullState == FullPaperState.NotRequested || s.fullState == FullPaperState.Failed
-        if (s.paper == null || !askable || s.requestingFull) return
-        _state.update { it.copy(requestingFull = true) }
-        viewModelScope.launch {
-            try {
-                applyFull(repo.requestFullPaper(arxivId))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: ApiException) {
-                _state.update { it.copy(requestingFull = false, message = "No se pudo pedir el paper completo") }
-            }
-        }
-    }
+    fun readFull() = fullText.readFull(onFailed = { _state.update { it.copy(message = "No se pudo pedir el paper completo") } })
 
-    /** La pantalla está a la vista. Fuera de ella no se pregunta por la traducción. */
+    /** La pantalla está a la vista. Fuera de ella no se pregunta por la traducción ni por el paper completo. */
     fun setActive(value: Boolean) {
         active = value
+        fullText.setActive(value)
         if (value) startPolling() else pollJob?.cancel()
     }
 
@@ -194,35 +171,13 @@ class PaperViewModel(
     private suspend fun parseAbstract(html: String?, base: String): List<Block> =
         if (html.isNullOrBlank()) emptyList() else withContext(parseDispatcher) { parseArticleHtml(html, base) }
 
-    /** Estado del paper completo. Sin red o sin respuesta, se vuelve a probar en la siguiente vuelta. */
-    private suspend fun refreshFull() {
-        try {
-            applyFull(repo.fullPaper(arxivId))
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: ApiException) {
-            // Se vuelve a probar en la siguiente vuelta.
-        }
-    }
-
-    /** Mientras el servicio traduce el paper, el HTML llega a trozos: se vuelve a leer solo si cambió (ADR 0015). */
-    private suspend fun applyFull(fresh: FullPaper) {
-        val current = _state.value
-        val base = serviceUrl()
-        val blocks = if (fresh.html == current.full?.html) current.fullBlocks
-        else withContext(parseDispatcher) { parseArticleHtml(fresh.html.orEmpty(), base) }
-        _state.update { it.copy(full = fresh, fullBlocks = blocks, requestingFull = false) }
-        startPolling()
-    }
-
     private fun startPolling() {
-        if (!active || !_state.value.polling || pollJob?.isActive == true) return
+        if (!active || !_state.value.translating || pollJob?.isActive == true) return
         pollJob = viewModelScope.launch {
-            while (_state.value.polling) {
+            while (_state.value.translating) {
                 delay(pollInterval)
                 try {
-                    if (_state.value.translating) apply(repo.paper(arxivId))
-                    if (_state.value.fullState == FullPaperState.Pending) applyFull(repo.fullPaper(arxivId))
+                    apply(repo.paper(arxivId))
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: ApiException) {

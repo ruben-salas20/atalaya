@@ -9,6 +9,7 @@ import dev.rubensalas.atalaya.data.api.Id
 import dev.rubensalas.atalaya.data.api.Progress
 import dev.rubensalas.atalaya.data.api.TranslationState
 import dev.rubensalas.atalaya.data.list.ListRepository
+import dev.rubensalas.atalaya.data.papers.PapersRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -70,11 +71,23 @@ data class ArticleUiState(
 class ArticleViewModel(
     private val id: Id,
     private val repo: ListRepository,
+    /** Para el texto completo, si el artículo es un paper de arXiv (#90). */
+    private val papers: PapersRepository,
+    /** Dirección del servicio: las fórmulas del texto completo son rutas relativas a ella (ADR 0010). */
+    private val serviceUrl: suspend () -> String = { "" },
     private val parseDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val pollInterval: Long = POLL_INTERVAL_MS,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ArticleUiState())
     val state: StateFlow<ArticleUiState> = _state.asStateFlow()
+
+    private val fullText = FullTextController(viewModelScope, papers, serviceUrl, parseDispatcher, pollInterval)
+
+    /** El texto completo del paper, solo si el artículo es uno (#90). Vacío en cualquier otro caso. */
+    val full: StateFlow<FullTextState> = fullText.state
+
+    /** El paper cuyo texto completo ya se abrió: se abre una vez, aunque el artículo se vuelva a leer. */
+    private var openedArxivId: String? = null
 
     private var active = false
     private var pollJob: Job? = null
@@ -103,12 +116,16 @@ class ArticleViewModel(
     /** La pantalla está a la vista. Fuera de ella no se pregunta por la traducción. */
     fun setActive(value: Boolean) {
         active = value
+        fullText.setActive(value)
         if (value) startPolling() else pollJob?.cancel()
     }
 
     fun choose(version: ArticleVersion) {
         if (_state.value.canSwitch) _state.update { it.copy(chosen = version) }
     }
+
+    /** «Leer completo» del paper de este artículo (#90). */
+    fun readFull() = fullText.readFull(onFailed = { _state.update { it.copy(message = "No se pudo pedir el paper completo") } })
 
     fun toggleStarred() {
         val entry = _state.value.entry ?: return
@@ -166,6 +183,11 @@ class ArticleViewModel(
             // Leído y guardado los manda la app: puede haber un cambio en camino.
             val entry = s.entry?.let { fresh.copy(read = it.read, starred = it.starred) } ?: fresh
             s.copy(entry = entry, loading = false, error = null, original = original, translated = translated)
+        }
+        // Solo si es un paper: sin arXiv id, el texto completo no se pide nunca (#90).
+        fresh.arxivId?.takeIf { it != openedArxivId }?.let { arxivId ->
+            openedArxivId = arxivId
+            fullText.open(arxivId)
         }
         startPolling()
     }

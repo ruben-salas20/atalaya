@@ -51,6 +51,29 @@ class AtalayaClientTest {
     }
 
     @Test
+    fun entryReadsArxivIdOfAPaperAndNullOtherwise() = runTest {
+        server.enqueue(
+            MockResponse(
+                body = """{"id":7,"feed_id":2,"feed_title":"arXiv","title":"Hola","original_title":"Hello",
+                "title_translated":false,"lang":"en","url":"https://arxiv.org/abs/2610.08812","published_at":"2026-10-23T10:00:00Z",
+                "read":false,"starred":true,"author":null,"content":"<p>Hello</p>","translation":"not_needed",
+                "translated_content":null,"arxiv_id":"2610.08812"}""",
+            ),
+        )
+        assertEquals("2610.08812", client.entry(7).arxivId)
+
+        server.enqueue(
+            MockResponse(
+                body = """{"id":8,"feed_id":2,"feed_title":"The Verge","title":"Hola","original_title":"Hello",
+                "title_translated":false,"lang":"en","url":"https://x","published_at":"2026-10-23T10:00:00Z",
+                "read":false,"starred":false,"author":null,"content":"<p>Hello</p>","translation":"not_needed",
+                "translated_content":null,"arxiv_id":null}""",
+            ),
+        )
+        assertNull(client.entry(8).arxivId)
+    }
+
+    @Test
     fun entryReadsProgressWhenThePartialIsThere() = runTest {
         server.enqueue(
             MockResponse(

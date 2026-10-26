@@ -132,6 +132,8 @@ data class Entry(
     @SerialName("translated_content") val translatedContent: String? = null,
     /** Con [TranslationState.Pending], cuántos párrafos van (ADR 0015). Puede faltar. */
     val progress: Progress? = null,
+    /** Si es un paper de arXiv, su identificador (`2610.08812`); si no, null. Abre «Texto completo» (#90). */
+    @SerialName("arxiv_id") val arxivId: String? = null,
 ) {
     val summary: EntrySummary
         get() = EntrySummary(id, feedId, feedTitle, title, originalTitle, titleTranslated, lang, url, publishedAt, read, starred)
