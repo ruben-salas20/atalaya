@@ -492,7 +492,31 @@ pub async fn translate_segment_with(
     html: &str,
     extra_check: impl Fn(&str, &str) -> Result<(), String>,
 ) -> Result<Segment, String> {
-    let (source, originals) = abbreviate(html);
+    // Un título en negrita al principio del párrafo («Resultados. El modelo…»)
+    // el modelo lo pierde: se traduce aparte.
+    if let Some((head, tail)) = split_run_in_heading(html) {
+        let head = translate_piece(llama, head, &extra_check).await?;
+        let tail = translate_piece(llama, tail, &extra_check).await?;
+        return Ok(Segment {
+            html: format!("{}{}", head.html, tail.html),
+            translated: head.translated && tail.translated,
+        });
+    }
+    translate_piece(llama, html, &extra_check).await
+}
+
+async fn translate_piece(
+    llama: &Llama,
+    html: &str,
+    extra_check: &impl Fn(&str, &str) -> Result<(), String>,
+) -> Result<Segment, String> {
+    // Una etiqueta que envuelve todo el párrafo (un título en negrita, por
+    // ejemplo) el modelo la suele perder: se quita antes y se pone después.
+    let (before, inner, after) = peel_wrappers(html);
+    let (source, originals) = abbreviate(inner);
+    // Un salto de línea tras un título en negrita hace que el modelo traduzca
+    // solo el título y pare: en HTML vale lo mismo que un espacio.
+    let source = join_lines(&source);
     let prompt = if originals.is_empty() {
         format!("{TEXT_PROMPT}{source}")
     } else {
@@ -509,7 +533,10 @@ pub async fn translate_segment_with(
             Err(e) => return Err(e),
         };
         let candidate = match restore(&clean_output(&raw), &originals) {
-            Ok(restored) => restored,
+            Ok(restored) if html.contains('*') => format!("{before}{restored}{after}"),
+            // El modelo marca en cursiva Markdown los préstamos del inglés
+            // (`*prompts*`); si el original no tiene asteriscos, sobran.
+            Ok(restored) => format!("{before}{}{after}", restored.replace('*', "")),
             Err(why) => {
                 tracing::debug!(attempt, "párrafo rechazado: {why}");
                 continue;
@@ -904,6 +931,115 @@ fn abbreviate(html: &str) -> (String, Vec<Original>) {
         }
     }
     (out, originals)
+}
+
+/// Si el párrafo empieza con un título en negrita (`<b>`, `<strong>` o un
+/// `span` con `font_bold`) y sigue con más texto, lo parte en
+/// `(título, resto)`.
+fn split_run_in_heading(html: &str) -> Option<(&str, &str)> {
+    let tokens = tokenize(html);
+    let first = tokens
+        .iter()
+        .position(|t| !matches!(t, Token::Text(x) if x.trim().is_empty()))?;
+    let Token::Tag {
+        raw,
+        name,
+        closing: false,
+    } = &tokens[first]
+    else {
+        return None;
+    };
+    if !(matches!(name.as_str(), "b" | "strong") || (name == "span" && raw.contains("font_bold"))) {
+        return None;
+    }
+    let mut depth = 0i32;
+    let close = tokens[first..].iter().position(|t| {
+        if let Token::Tag {
+            name: n, closing, ..
+        } = t
+            && n == name
+        {
+            depth += if *closing { -1 } else { 1 };
+        }
+        depth == 0
+    })? + first;
+    let at =
+        tokens[close].raw().as_ptr() as usize - html.as_ptr() as usize + tokens[close].raw().len();
+    let (head, tail) = html.split_at(at);
+    let has_words = |s: &str| {
+        tokenize(s)
+            .iter()
+            .any(|t| matches!(t, Token::Text(x) if x.chars().any(char::is_alphabetic)))
+    };
+    (has_words(head) && has_words(tail)).then_some((head, tail))
+}
+
+/// Cambia cada salto de línea, con los espacios de alrededor, por un espacio.
+fn join_lines(text: &str) -> String {
+    text.split('\n')
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Separa las etiquetas que envuelven el párrafo entero, de fuera a dentro:
+/// `(apertura, interior, cierre)`. Si no hay, la apertura y el cierre van vacíos.
+fn peel_wrappers(html: &str) -> (&str, &str, &str) {
+    let (mut start, mut end) = (0, html.len());
+    loop {
+        let inner = &html[start..end];
+        let tokens = tokenize(inner);
+        let solid = |t: &&Token<'_>| !matches!(t, Token::Text(x) if x.trim().is_empty());
+        let (Some(first), Some(last)) = (
+            tokens.iter().position(|t| solid(&t)),
+            tokens.iter().rposition(|t| solid(&t)),
+        ) else {
+            break;
+        };
+        let (
+            Token::Tag {
+                name,
+                closing: false,
+                ..
+            },
+            Token::Tag {
+                name: last_name,
+                closing: true,
+                ..
+            },
+        ) = (&tokens[first], &tokens[last])
+        else {
+            break;
+        };
+        if first >= last
+            || name != last_name
+            || tokens[first].is_self_closing()
+            || VOID.contains(&name.as_str())
+        {
+            break;
+        }
+        // La apertura debe cerrarse justo en el último token, no antes.
+        let mut depth = 0i32;
+        let closes_at_end = tokens[first..=last].iter().enumerate().all(|(k, t)| {
+            if let Token::Tag {
+                name: n, closing, ..
+            } = t
+                && n == name
+            {
+                depth += if *closing { -1 } else { 1 };
+            }
+            depth > 0 || first + k == last
+        });
+        if !closes_at_end {
+            break;
+        }
+        let offset = |t: &Token<'_>| t.raw().as_ptr() as usize - inner.as_ptr() as usize;
+        let new_start = start + offset(&tokens[first]) + tokens[first].raw().len();
+        end = start + offset(&tokens[last]);
+        start = new_start;
+    }
+    (&html[..start], &html[start..end], &html[end..])
 }
 
 /// Elementos que viajan enteros como una sola forma corta `<tN/>`: el modelo
@@ -1414,6 +1550,44 @@ The Fi Ultra is the first dog tracker.
             r#"Lee <a href="https://a.com/?x=1&amp;y=2">esto</a> ahora."#
         );
         assert_eq!(check(o, &restored), Ok(()));
+    }
+
+    #[test]
+    fn split_run_in_heading_separa_el_titulo() {
+        let html = "<span class=\"ltx_text ltx_font_bold\">Part Quality.</span>\nWe first <b>evaluate</b>.";
+        assert_eq!(
+            split_run_in_heading(html),
+            Some((
+                "<span class=\"ltx_text ltx_font_bold\">Part Quality.</span>",
+                "\nWe first <b>evaluate</b>."
+            ))
+        );
+        assert_eq!(split_run_in_heading("<b>Solo título.</b>"), None);
+        assert_eq!(split_run_in_heading("Texto <b>x</b> más"), None);
+        assert_eq!(split_run_in_heading("<span>No negrita.</span> texto"), None);
+    }
+
+    #[test]
+    fn join_lines_deja_una_sola_linea() {
+        assert_eq!(
+            join_lines("<t1>Título.</t1>\n  Texto\n\nmás "),
+            "<t1>Título.</t1> Texto más"
+        );
+        assert_eq!(join_lines("sin saltos"), "sin saltos");
+    }
+
+    #[test]
+    fn peel_wrappers_quita_lo_que_envuelve_todo() {
+        assert_eq!(
+            peel_wrappers("<span class=\"b\"><b>Título.</b></span>"),
+            ("<span class=\"b\"><b>", "Título.", "</b></span>")
+        );
+        assert_eq!(
+            peel_wrappers("<b>a</b> y <b>b</b>"),
+            ("", "<b>a</b> y <b>b</b>", "")
+        );
+        assert_eq!(peel_wrappers("texto <b>x</b>"), ("", "texto <b>x</b>", ""));
+        assert_eq!(peel_wrappers(" <i>x</i> "), (" <i>", "x", "</i> "));
     }
 
     #[test]
