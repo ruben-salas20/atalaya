@@ -319,9 +319,11 @@ async fn open(
         .await;
     Ok(Json(Paper {
         summary: summary(&paper, title.as_ref(), saved),
-        abstract_text: paper.abstract_text.clone(),
+        abstract_text: abstract_math::tex_dashes(&paper.abstract_text),
         translation,
-        translated_abstract,
+        translated_abstract: translated_abstract
+            .as_deref()
+            .map(abstract_math::tex_dashes),
         abstract_html,
         translated_abstract_html,
         abs_url: arxiv::abs_url(&paper.arxiv_id),
