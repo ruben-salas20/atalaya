@@ -14,10 +14,9 @@ use atalaya_api::{Entry, EntrySummary, EntryUpdate, Id, Progress, TranslationSta
 use chrono::Utc;
 use gpui::prelude::*;
 use gpui::{
-    Animation, AnimationExt, App, Context, ElementId, Entity, EventEmitter, FontWeight, Pixels,
-    SharedString, Task, Window, div, px, relative,
+    Animation, AnimationExt, App, Context, Entity, EventEmitter, FontWeight, Pixels, SharedString,
+    Task, Window, div, px, relative,
 };
-use gpui_component::scroll::ScrollableElement;
 use gpui_component::text::TextView;
 use gpui_component::tooltip::Tooltip;
 
@@ -25,6 +24,7 @@ use crate::assets::Icon;
 use crate::palette::Palette;
 use crate::ui::format::{ago_phrase, code_in_pre, progress_fraction, progress_text, split_pending};
 use crate::ui::fulltext::FullText;
+use crate::ui::smooth_scroll::SmoothScroll;
 use crate::ui::widgets::{MenuAction, bar, icon, icon_button, more_menu};
 
 /// Cada cuánto se vuelve a pedir un artículo o un paper que se está traduciendo.
@@ -69,6 +69,8 @@ pub struct Reader {
     _fetch: Task<()>,
     /// El texto completo, si el artículo es un paper de arXiv (#90).
     full_text: Entity<FullText>,
+    /// El desplazamiento del artículo, con la rueda suave (#89).
+    scroll: SmoothScroll,
 }
 
 impl EventEmitter<ReaderEvent> for Reader {}
@@ -82,6 +84,7 @@ impl Reader {
             action_error: None,
             _fetch: Task::ready(()),
             full_text: cx.new(|_| FullText::default()),
+            scroll: SmoothScroll::default(),
         }
     }
 
@@ -89,6 +92,7 @@ impl Reader {
         let id = entry.id;
         let unread = !entry.read;
         self.summary = Some(entry);
+        self.scroll.reset();
         self.load = Load::Loading;
         self.lang = Lang::Spanish;
         self.action_error = None;
@@ -527,11 +531,9 @@ impl Reader {
                 .into_any_element(),
         };
 
-        div()
-            .id(ElementId::NamedInteger("article".into(), summary.id as u64))
-            .flex_1()
-            .min_h_0()
-            .child(
+        self.scroll
+            .vertical(
+                "article",
                 div().py(px(32.)).child(
                     div()
                         .max_w(px(640.))
@@ -544,7 +546,8 @@ impl Reader {
                         .child(self.full_text.clone()),
                 ),
             )
-            .overflow_y_scrollbar()
+            .flex_1()
+            .min_h_0()
     }
 }
 

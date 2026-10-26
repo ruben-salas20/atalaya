@@ -12,11 +12,10 @@ use std::time::Duration;
 use atalaya_api::{EntrySummary, Paper, PaperSummary, TranslationState};
 use gpui::prelude::*;
 use gpui::{
-    App, Context, ElementId, Entity, EventEmitter, FontWeight, Pixels, SharedString, Task, Window,
-    div, px, relative,
+    App, Context, Entity, EventEmitter, FontWeight, Pixels, SharedString, Task, Window, div, px,
+    relative,
 };
 use gpui_base::text::TextView;
-use gpui_component::scroll::ScrollableElement;
 use gpui_component::tooltip::Tooltip;
 
 use super::format::{abstract_paragraphs, paper_date};
@@ -24,6 +23,7 @@ use crate::assets::Icon;
 use crate::palette::Palette;
 use crate::ui::fulltext::{FullText, full};
 use crate::ui::reader::{POLL_EVERY, progress, toast};
+use crate::ui::smooth_scroll::SmoothScroll;
 use crate::ui::widgets::{MenuAction, bar, icon, icon_button, more_menu};
 
 pub enum PaperReaderEvent {
@@ -56,6 +56,8 @@ pub struct PaperReader {
     _fetch: Task<()>,
     /// El texto completo, debajo del resumen (P7, ADR 0010).
     full_text: Entity<FullText>,
+    /// El desplazamiento del paper, con la rueda suave (#89).
+    scroll: SmoothScroll,
 }
 
 impl EventEmitter<PaperReaderEvent> for PaperReader {}
@@ -70,12 +72,14 @@ impl PaperReader {
             action_error: None,
             _fetch: Task::ready(()),
             full_text: cx.new(|_| FullText::default()),
+            scroll: SmoothScroll::default(),
         }
     }
 
     pub fn show(&mut self, paper: PaperSummary, cx: &mut Context<Self>) {
         let id = paper.arxiv_id.clone();
         self.summary = Some(paper);
+        self.scroll.reset();
         self.load = Load::Loading;
         self.lang = Lang::Spanish;
         self.saving = false;
@@ -579,13 +583,9 @@ impl PaperReader {
                 .into_any_element(),
         };
 
-        div()
-            .id(ElementId::Name(
-                format!("paper-{}", summary.arxiv_id).into(),
-            ))
-            .flex_1()
-            .min_h_0()
-            .child(
+        self.scroll
+            .vertical(
+                "paper",
                 div().py(px(32.)).child(
                     div()
                         .max_w(px(640.))
@@ -596,7 +596,8 @@ impl PaperReader {
                         .child(body),
                 ),
             )
-            .overflow_y_scrollbar()
+            .flex_1()
+            .min_h_0()
     }
 }
 
