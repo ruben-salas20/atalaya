@@ -140,6 +140,14 @@ impl PaperReader {
                             paper.summary.saved_entry_id = Some(saved);
                         }
                         this.summary = Some(paper.summary.clone());
+                        if let Ok(client) = crate::ui::client(cx) {
+                            let urls = abstract_formula_urls(
+                                paper.abstract_html.as_deref(),
+                                paper.translated_abstract_html.as_deref(),
+                                client.service_url(),
+                            );
+                            this.fetch_formulas(urls, cx);
+                        }
                         this.load = Load::Ready(Box::new(paper));
                     }
                     Err(error) => match this.load {
@@ -555,7 +563,10 @@ impl PaperReader {
                     };
                     section = section.child(div().mb(px(10.)).child(bar));
                 }
-                section = section.children(self.full_parts(arxiv_id, full, p, body_size, cx));
+                if let Some(html) = full.html.as_deref() {
+                    let id = format!("full-{arxiv_id}");
+                    section = section.children(self.html_parts(&id, html, false, p, body_size, cx));
+                }
             }
         }
         section.into_any_element()
@@ -585,17 +596,19 @@ impl PaperReader {
             .into_any_element()
     }
 
-    /// Los trozos del HTML del servicio, en orden: texto con sus fórmulas en
-    /// línea, y las fórmulas aparte, centradas.
-    fn full_parts(
+    /// Los trozos de un HTML del servicio (el paper completo o el resumen), en
+    /// orden: texto con sus fórmulas en línea, y las fórmulas aparte,
+    /// centradas. `id` da nombre a los textos; `dimmed` los pinta en gris.
+    fn html_parts(
         &self,
-        arxiv_id: &str,
-        full: &FullPaper,
+        id: &str,
+        html: &str,
+        dimmed: bool,
         p: &Palette,
         body_size: Pixels,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
-        let (Some(html), Ok(client)) = (full.html.as_deref(), crate::ui::client(cx)) else {
+        let Ok(client) = crate::ui::client(cx) else {
             return Vec::new();
         };
         let base = client.service_url().to_owned();
@@ -610,16 +623,16 @@ impl PaperReader {
                 n += 1;
                 match part {
                     Part::Text(text) => {
-                        let id = SharedString::from(format!("full-{arxiv_id}-{n}"));
+                        let text_id = SharedString::from(format!("{id}-{n}"));
                         let formulas = self.formulas.clone();
                         let color = color.clone();
-                        let view = TextView::html(id, code_in_pre(&text))
+                        let view = TextView::html(text_id, code_in_pre(&text))
                             .selectable(true)
                             .style(style.clone())
                             .image_source(move |uri: &SharedUri| {
                                 ImageSource::Image(formulas.image(&uri.to_string(), &color, ex_px))
                             });
-                        let view = if piece.pending {
+                        let view = if piece.pending || dimmed {
                             view.text_color(p.text3)
                         } else {
                             view
@@ -741,16 +754,36 @@ impl PaperReader {
 
         let body = match (&self.load, paper) {
             (_, Some(paper)) => {
-                let text = if spanish {
-                    paper.translated_abstract.as_deref().unwrap_or_default()
+                // Con fórmulas, el resumen viene en HTML y se pinta como el
+                // paper completo (#80). Sin ellas, el texto plano de siempre.
+                let rich = if spanish {
+                    paper.translated_abstract_html.as_deref()
                 } else {
-                    &paper.abstract_text
+                    paper.abstract_html.as_deref()
                 };
-                let html: String = abstract_paragraphs(text)
-                    .iter()
-                    .map(|para| format!("<p>{}</p>", escape(para)))
-                    .collect();
-                let id = SharedString::from(format!("abstract-{}-{spanish}", summary.arxiv_id));
+                let id = format!("abstract-{}-{spanish}", summary.arxiv_id);
+                let text = match rich {
+                    Some(html) => div()
+                        .children(self.html_parts(&id, html, pending, p, body_size, cx))
+                        .into_any_element(),
+                    None => {
+                        let plain = if spanish {
+                            paper.translated_abstract.as_deref().unwrap_or_default()
+                        } else {
+                            &paper.abstract_text
+                        };
+                        let html: String = abstract_paragraphs(plain)
+                            .iter()
+                            .map(|para| format!("<p>{}</p>", escape(para)))
+                            .collect();
+                        div()
+                            .text_size(body_size)
+                            .line_height(relative(1.65))
+                            .when(pending, |d| d.text_color(p.text3))
+                            .child(TextView::html(SharedString::from(id), html).selectable(true))
+                            .into_any_element()
+                    }
+                };
                 div()
                     .child(
                         div()
@@ -760,13 +793,7 @@ impl PaperReader {
                             .mb(px(8.))
                             .child(if spanish { "RESUMEN" } else { "ABSTRACT" }),
                     )
-                    .child(
-                        div()
-                            .text_size(body_size)
-                            .line_height(relative(1.65))
-                            .when(pending, |d| d.text_color(p.text3))
-                            .child(TextView::html(id, html).selectable(true)),
-                    )
+                    .child(text)
                     .child(
                         div()
                             .flex()
@@ -883,6 +910,20 @@ fn text_style(cx: &App) -> TextViewStyle {
         .with_dark(theme.is_dark())
 }
 
+/// Las fórmulas que hay que bajar de un resumen, en original y en español. Las
+/// dos suelen usar las mismas direcciones; el registro de descargas no repite.
+fn abstract_formula_urls(
+    original: Option<&str>,
+    translated: Option<&str>,
+    base: &str,
+) -> Vec<String> {
+    [original, translated]
+        .into_iter()
+        .flatten()
+        .flat_map(|html| full::formula_urls(html, base))
+        .collect()
+}
+
 /// El resumen llega en texto plano y se pinta como HTML: `<` o `&` en un
 /// resumen (fórmulas, «A&B») no deben leerse como etiquetas.
 fn escape(text: &str) -> String {
@@ -944,5 +985,23 @@ mod tests {
     #[test]
     fn escapes_markup() {
         assert_eq!(escape("A<B & C>D"), "A&lt;B &amp; C&gt;D");
+    }
+
+    #[test]
+    fn abstract_formulas_come_from_both_languages() {
+        let original = "<p><img class=\"atalaya-formula\" src=\"/formulas/hep-th%2F9901001/r0.svg\" alt=\"a\"></p>";
+        let translated = "<p><img class=\"atalaya-formula\" src=\"/formulas/hep-th%2F9901001/r1.svg\" alt=\"b\"></p>";
+        assert_eq!(
+            abstract_formula_urls(Some(original), Some(translated), "http://s"),
+            [
+                "http://s/formulas/hep-th%2F9901001/r0.svg",
+                "http://s/formulas/hep-th%2F9901001/r1.svg",
+            ]
+        );
+        assert_eq!(
+            abstract_formula_urls(Some(original), None, "http://s").len(),
+            1
+        );
+        assert!(abstract_formula_urls(None, None, "http://s").is_empty());
     }
 }

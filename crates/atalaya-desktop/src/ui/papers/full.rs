@@ -435,4 +435,36 @@ mod tests {
         assert_eq!(parts(html, BASE, 16.), [Part::Text(html.to_owned())]);
         assert!(formula_urls(html, BASE).is_empty());
     }
+
+    #[test]
+    fn abstract_formulas_are_downloaded_with_their_escaped_ids() {
+        // El resumen (#80) usa `/formulas/<id>/rK.svg`, con la barra del id
+        // antiguo codificada, y mezcla fórmulas en línea y de bloque.
+        let html = "<p>Sea <img class=\"atalaya-formula\" src=\"/formulas/hep-th%2F9901001/r0.svg\" \
+                    alt=\"x\" style=\"width: 2ex; height: 2ex\"> el índice.</p>\
+                    <img class=\"atalaya-formula atalaya-formula-bloque\" \
+                    src=\"/formulas/2610.08812/r1.svg\" alt=\"E\">\
+                    <code class=\"atalaya-latex\">\\bad</code>";
+        assert_eq!(
+            formula_urls(html, BASE),
+            [
+                "http://ai-lab:8080/formulas/hep-th%2F9901001/r0.svg",
+                "http://ai-lab:8080/formulas/2610.08812/r1.svg",
+            ]
+        );
+        // La fórmula en línea se queda en el texto; la de bloque sale aparte.
+        let parts = parts(html, BASE, 16.);
+        assert_eq!(parts.len(), 3, "{parts:?}");
+        let Part::Text(first) = &parts[0] else {
+            panic!("se esperaba texto: {parts:?}");
+        };
+        assert!(
+            first.contains("src=\"http://ai-lab:8080/formulas/hep-th%2F9901001/r0.svg\""),
+            "{first}"
+        );
+        assert!(matches!(
+            &parts[1],
+            Part::Block(Formula { url, .. }) if url == "http://ai-lab:8080/formulas/2610.08812/r1.svg"
+        ));
+    }
 }
