@@ -161,6 +161,35 @@ class AtalayaClientTest {
     }
 
     @Test
+    fun fullPaperReadsStateAndProgress() = runTest {
+        server.enqueue(MockResponse(body = """{"state":"pending","html":"<p>Hola</p>","progress":{"done":2,"total":9}}"""))
+        val full = client.fullPaper("2610.31646")
+        assertEquals(FullPaperState.Pending, full.state)
+        assertEquals("<p>Hola</p>", full.html)
+        assertEquals(Progress(2, 9), full.progress)
+        val req = server.takeRequest()
+        assertEquals("GET", req.method)
+        assertEquals("/api/papers/2610.31646/full", req.url.encodedPath)
+    }
+
+    @Test
+    fun fullPaperWithoutHtmlAndStatesInSnakeCase() = runTest {
+        server.enqueue(MockResponse(body = """{"state":"not_available"}"""))
+        assertEquals(FullPaper(FullPaperState.NotAvailable), client.fullPaper("2610.31646"))
+        server.enqueue(MockResponse(body = """{"state":"not_requested"}"""))
+        assertEquals(FullPaperState.NotRequested, client.fullPaper("2610.31646").state)
+    }
+
+    @Test
+    fun requestFullPaperPostsAndReturnsState() = runTest {
+        server.enqueue(MockResponse(code = 202, body = """{"state":"failed"}"""))
+        assertEquals(FullPaperState.Failed, client.requestFullPaper("hep-th/9901001").state)
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        assertEquals("/api/papers/hep-th%2F9901001/full", req.url.encodedPath)
+    }
+
+    @Test
     fun savePaperPostsAndReturnsEntry() = runTest {
         server.enqueue(
             MockResponse(
