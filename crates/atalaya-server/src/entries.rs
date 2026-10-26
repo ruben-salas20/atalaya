@@ -155,6 +155,7 @@ async fn open(
         translation: translation.translation,
         translated_content: translation.html,
         progress: translation.progress,
+        arxiv_id: crate::papers::arxiv::id_from_url(&entry.url),
     }))
 }
 
