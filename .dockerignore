@@ -6,3 +6,4 @@ assets
 .git
 .claude
 .playwright-mcp
+**/node_modules

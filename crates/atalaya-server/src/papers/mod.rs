@@ -16,6 +16,7 @@
 pub mod abstracts;
 pub mod arxiv;
 pub mod db;
+pub mod full;
 pub mod saved;
 pub mod translate;
 
@@ -58,6 +59,7 @@ pub fn routes() -> Router<AppState> {
         .route("/papers/search", get(search))
         .route("/papers/{arxiv_id}", get(open))
         .route("/papers/{arxiv_id}/save", post(save))
+        .route("/papers/{arxiv_id}/full", get(full_state).post(full_request))
 }
 
 #[derive(Clone)]
@@ -68,6 +70,8 @@ pub struct Papers {
 struct Inner {
     arxiv: Arxiv,
     translations: Translations,
+    /// Papers completos (P7, ADR 0010).
+    full: full::FullPapers,
     /// Limita las peticiones a llama-swap a la vez desde los papers.
     gpu: Semaphore,
     /// Papers cuyo resumen se está traduciendo ahora mismo.
@@ -77,6 +81,10 @@ struct Inner {
 }
 
 impl Papers {
+    pub fn full(&self) -> &full::FullPapers {
+        &self.inner.full
+    }
+
     pub fn new(http: reqwest::Client, translations: Translations) -> Self {
         Self::with_arxiv(Arxiv::new(http), translations)
     }
@@ -85,6 +93,13 @@ impl Papers {
         Self {
             inner: Arc::new(Inner {
                 arxiv,
+                full: full::FullPapers::new(
+                    reqwest::Client::builder()
+                        .user_agent(concat!("Atalaya/", env!("CARGO_PKG_VERSION")))
+                        .build()
+                        .expect("no se pudo crear el cliente HTTP"),
+                    translations.clone(),
+                ),
                 translations,
                 gpu: Semaphore::new(translate::PARALLEL_REQUESTS),
                 abstracts_running: Mutex::new(HashSet::new()),
@@ -298,6 +313,63 @@ async fn open(
         abs_url: arxiv::abs_url(&paper.arxiv_id),
         pdf_url: arxiv::pdf_url(&paper.arxiv_id),
     }))
+}
+
+/// `GET /api/papers/{arxiv_id}/full`: cómo va el paper completo (P7).
+async fn full_state(
+    State(state): State<AppState>,
+    path: Result<Path<String>, PathRejection>,
+) -> AppResult<Json<atalaya_api::FullPaper>> {
+    let id = arxiv_id(path)?;
+    state
+        .papers
+        .full()
+        .state(&id)
+        .await
+        .map(Json)
+        .map_err(AppError::bad_gateway)
+}
+
+/// `POST /api/papers/{arxiv_id}/full`: lo pide (P7). Responde como el `GET`.
+async fn full_request(
+    State(state): State<AppState>,
+    path: Result<Path<String>, PathRejection>,
+) -> AppResult<Json<atalaya_api::FullPaper>> {
+    let id = arxiv_id(path)?;
+    state
+        .papers
+        .full()
+        .request(&id)
+        .await
+        .map(Json)
+        .map_err(AppError::bad_gateway)
+}
+
+/// `GET /formulas/{arxiv_id}/{n}.svg`: una fórmula de un paper completo. Va
+/// sin clave, como una imagen cualquiera: solo es una fórmula de un paper
+/// público, y el servicio solo se ve dentro de Tailscale (ADR 0008).
+pub async fn formula_svg(
+    State(state): State<AppState>,
+    Path((raw_id, file)): Path<(String, String)>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let id = arxiv::strip_version(raw_id.trim()).to_owned();
+    let n = file.strip_suffix(".svg").and_then(|n| n.parse::<i64>().ok());
+    let (true, Some(n)) = (arxiv::is_valid_id(&id), n) else {
+        return AppError::not_found("Esa fórmula no existe").into_response();
+    };
+    match state.papers.full().formula(&id, n).await {
+        Ok(Some(svg)) => (
+            [
+                (axum::http::header::CONTENT_TYPE, "image/svg+xml"),
+                (axum::http::header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+            ],
+            svg,
+        )
+            .into_response(),
+        Ok(None) => AppError::not_found("Esa fórmula no existe").into_response(),
+        Err(e) => AppError::bad_gateway(e).into_response(),
+    }
 }
 
 async fn save(

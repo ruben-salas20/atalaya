@@ -10,16 +10,18 @@ atalaya-api.workspace = true
 axum = "0.8.9"
 chrono.workspace = true
 feed-rs = "3.0.0"
+ego-tree = "0.11.1"
 hex = "0.4"
 hmac = "0.13"
 isolang = { version = "2.4.0", default-features = false }
 reqwest = { version = "0.13.5", default-features = false, features = ["charset", "http2", "json", "query", "rustls"] }
+scraper = "0.29.0"
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.11"
 subtle = "2.6.1"
-tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1.54.1", features = ["io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
 quick-xml = "0.42"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

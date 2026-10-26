@@ -193,10 +193,24 @@ impl Drop for InProgressGuard {
 /// Un párrafo por traducir, para el trabajador de la GPU.
 #[derive(Debug)]
 pub struct SegmentJob {
-    /// Artículo al que pertenece: decide su turno en la cola (ADR 0015).
+    /// Artículo al que pertenece: decide su turno en la cola (ADR 0015). Los
+    /// papers completos usan ids negativos ([`crate::papers::full`]).
     pub entry_id: Id,
+    pub kind: SegmentKind,
     pub html: String,
     pub reply: oneshot::Sender<Result<Segment, String>>,
+}
+
+/// Qué se traduce y con qué comprobaciones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SegmentKind {
+    /// Párrafo de un artículo: [`translate_segment`].
+    Article,
+    /// Párrafo de un paper con fórmulas `<m id="N">LaTeX</m>` (ADR 0010).
+    Paper,
+    /// Celdas de una tabla de paper: `html` es una lista JSON de textos y la
+    /// respuesta, otra con las traducciones en el mismo orden.
+    TableCells,
 }
 
 /// Resultado de un párrafo.
@@ -430,6 +444,7 @@ impl Translations {
                 let (reply, rx) = oneshot::channel();
                 self.queue_segment(SegmentJob {
                     entry_id: id,
+                    kind: SegmentKind::Article,
                     html: text.clone(),
                     reply,
                 });
@@ -467,6 +482,16 @@ impl Translations {
 /// GPU. Devuelve error solo si llama-swap no responde: entonces el artículo
 /// entero falla, porque seguir sería sumar esperas.
 pub async fn translate_segment(llama: &Llama, html: &str) -> Result<Segment, String> {
+    translate_segment_with(llama, html, |_, _| Ok(())).await
+}
+
+/// Como [`translate_segment`], con una comprobación más de cada traducción
+/// (la de las fórmulas de los papers, por ejemplo).
+pub async fn translate_segment_with(
+    llama: &Llama,
+    html: &str,
+    extra_check: impl Fn(&str, &str) -> Result<(), String>,
+) -> Result<Segment, String> {
     let (source, originals) = abbreviate(html);
     let prompt = if originals.is_empty() {
         format!("{TEXT_PROMPT}{source}")
@@ -490,7 +515,7 @@ pub async fn translate_segment(llama: &Llama, html: &str) -> Result<Segment, Str
                 continue;
             }
         };
-        match check(html, &candidate) {
+        match check(html, &candidate).and_then(|()| extra_check(html, &candidate)) {
             Ok(()) => {
                 return Ok(Segment {
                     html: candidate,

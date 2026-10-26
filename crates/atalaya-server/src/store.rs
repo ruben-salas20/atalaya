@@ -29,7 +29,7 @@ use crate::translations::TitleInfo;
 
 /// Versión del esquema, en `PRAGMA user_version`. Cada cambio de tablas
 /// añade un paso a [`migrate`] y sube este número.
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
 
 /// Campo traducido de un artículo.
 pub const FIELD_TITLE: &str = "title";
@@ -168,6 +168,28 @@ fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
                 english    TEXT NOT NULL,
                 model      TEXT NOT NULL,
                 updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+            );",
+        )?;
+        tx.pragma_update(None, "user_version", 3)?;
+        tx.commit()?;
+    }
+    if version < 4 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "CREATE TABLE paper_full (
+                arxiv_id   TEXT PRIMARY KEY,        -- tal como lo pide la app: '2610.31646'
+                state      TEXT NOT NULL,           -- 'pending', 'done', 'failed' o 'not_available'
+                html       TEXT,                    -- el paper en español, con state = 'done'
+                error      TEXT,
+                model      TEXT,
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+            );
+
+            CREATE TABLE paper_formulas (
+                arxiv_id TEXT NOT NULL,
+                n        INTEGER NOT NULL,          -- orden de la fórmula en el paper
+                svg      TEXT NOT NULL,             -- de MathJax (ADR 0010)
+                PRIMARY KEY (arxiv_id, n)
             );",
         )?;
         tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
