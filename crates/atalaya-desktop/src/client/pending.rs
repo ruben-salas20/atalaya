@@ -74,10 +74,10 @@ impl Pending {
         merged
     }
 
-    /// Lo último pedido para el artículo, si espera a la red.
-    pub fn latest(&self, id: Id) -> Option<EntryUpdate> {
+    /// Lo que espera del artículo, con cómo estaba antes.
+    pub fn get(&self, id: Id) -> Option<Queued> {
         let _guard = self.lock.lock().unwrap_or_else(PoisonError::into_inner);
-        self.load().get(&id).map(|queued| queued.update.clone())
+        self.load().remove(&id)
     }
 
     /// Todo lo que espera, por id de artículo.
@@ -196,7 +196,7 @@ pub(crate) mod tests {
                 starred: Some(true),
             }
         );
-        assert_eq!(pending.latest(7), Some(merged.clone()));
+        assert_eq!(pending.get(7).map(|q| q.update), Some(merged.clone()));
         assert_eq!(updates(&pending), vec![(7, merged)]);
     }
 
