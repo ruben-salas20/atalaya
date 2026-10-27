@@ -2,8 +2,9 @@
 //!
 //! Sin él, GPUI usa uno vacío y cada imagen falla con «No HttpClient
 //! available». Usa el mismo `reqwest` bloqueante que el cliente del
-//! servicio: cada descarga va en un hilo propio y el resultado vuelve por un
-//! canal, para no frenar la interfaz.
+//! servicio. Las descargas las hace un grupo fijo de hilos que leen de una
+//! cola, y el resultado vuelve por un canal, para no frenar la interfaz. Un
+//! artículo con cien imágenes no abre cien hilos (#65).
 //!
 //! Las figuras de los papers suelen ser PNG o SVG transparentes con texto
 //! negro, ilegibles en tema oscuro (#100). Por eso cada imagen bajada se
@@ -12,6 +13,8 @@
 
 use std::io::Cursor;
 use std::ops::Range;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use futures::channel::oneshot;
@@ -21,8 +24,19 @@ use gpui::http_client::http::header::CONTENT_LENGTH;
 use gpui::http_client::{self, AsyncBody, HttpClient, Request, Response, Url};
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
 
+/// Cuántas imágenes se bajan a la vez (#65).
+const WORKERS: usize = 4;
+
+type Reply = oneshot::Sender<http_client::Result<Response<AsyncBody>>>;
+
+/// Una descarga pendiente: lo pedido y por dónde devolver el resultado.
+struct Job {
+    parts: http_client::http::request::Parts,
+    reply: Reply,
+}
+
 pub struct ImageClient {
-    http: reqwest::blocking::Client,
+    jobs: Mutex<Sender<Job>>,
 }
 
 impl ImageClient {
@@ -34,8 +48,62 @@ impl ImageClient {
             .user_agent(concat!("Atalaya/", env!("CARGO_PKG_VERSION")))
             .build()
             .ok()?;
-        Some(Self { http })
+        let (jobs, queue) = mpsc::channel();
+        let queue = Arc::new(Mutex::new(queue));
+        for _ in 0..WORKERS {
+            let http = http.clone();
+            let queue = Arc::clone(&queue);
+            std::thread::Builder::new()
+                .name("atalaya-imagenes".into())
+                .spawn(move || work(&http, &queue))
+                .ok()?;
+        }
+        Some(Self {
+            jobs: Mutex::new(jobs),
+        })
     }
+}
+
+/// Bucle de un hilo del grupo: toma la siguiente descarga de la cola hasta
+/// que se cierra.
+fn work(http: &reqwest::blocking::Client, queue: &Mutex<Receiver<Job>>) {
+    loop {
+        let job = queue.lock().unwrap_or_else(PoisonError::into_inner).recv();
+        let Ok(Job { parts, reply }) = job else {
+            return;
+        };
+        // Si la interfaz ya no espera esta imagen, no se baja.
+        if reply.is_canceled() {
+            continue;
+        }
+        reply.send(download(http, parts)).ok();
+    }
+}
+
+/// Baja una imagen. Las que se saben componer salen sobre blanco (#100).
+fn download(
+    http: &reqwest::blocking::Client,
+    parts: http_client::http::request::Parts,
+) -> http_client::Result<Response<AsyncBody>> {
+    let response = http
+        .request(parts.method, parts.uri.to_string())
+        .headers(parts.headers)
+        .send()?;
+    let status = response.status();
+    let mut builder = Response::builder().status(status);
+    for (name, value) in response.headers() {
+        // La longitud cambia al componer la imagen.
+        if name != CONTENT_LENGTH {
+            builder = builder.header(name, value);
+        }
+    }
+    let bytes = response.bytes()?;
+    let body = if status.is_success() {
+        on_white_card(&bytes).unwrap_or_else(|| bytes.to_vec())
+    } else {
+        bytes.to_vec()
+    };
+    Ok(builder.body(AsyncBody::from(body))?)
 }
 
 impl HttpClient for ImageClient {
@@ -48,39 +116,19 @@ impl HttpClient for ImageClient {
     }
 
     /// Solo se usa para bajar imágenes, así que el cuerpo de la petición
-    /// no se manda. Las imágenes que se saben componer salen sobre blanco
-    /// (#100); el resto, tal cual.
+    /// no se manda. La descarga espera turno en la cola del grupo de hilos.
     fn send(
         &self,
         request: Request<AsyncBody>,
     ) -> BoxFuture<'static, http_client::Result<Response<AsyncBody>>> {
-        let http = self.http.clone();
         let (parts, _) = request.into_parts();
-        let (tx, rx) = oneshot::channel();
-        std::thread::spawn(move || {
-            let result = (|| -> http_client::Result<Response<AsyncBody>> {
-                let response = http
-                    .request(parts.method, parts.uri.to_string())
-                    .headers(parts.headers)
-                    .send()?;
-                let status = response.status();
-                let mut builder = Response::builder().status(status);
-                for (name, value) in response.headers() {
-                    // La longitud cambia al componer la imagen.
-                    if name != CONTENT_LENGTH {
-                        builder = builder.header(name, value);
-                    }
-                }
-                let bytes = response.bytes()?;
-                let body = if status.is_success() {
-                    on_white_card(&bytes).unwrap_or_else(|| bytes.to_vec())
-                } else {
-                    bytes.to_vec()
-                };
-                Ok(builder.body(AsyncBody::from(body))?)
-            })();
-            tx.send(result).ok();
-        });
+        let (reply, rx) = oneshot::channel();
+        self.jobs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .send(Job { parts, reply })
+            .ok();
+        // Si la cola se cerró, `reply` se suelta y `rx` da error.
         Box::pin(async move { rx.await? })
     }
 }
@@ -223,7 +271,55 @@ fn attr_range(tag: &str, name: &str) -> Option<Range<usize>> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
+
+    #[test]
+    fn no_more_than_workers_downloads_at_once() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("servidor de prueba");
+        let port = listener.local_addr().expect("puerto").port();
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        {
+            let (active, peak) = (Arc::clone(&active), Arc::clone(&peak));
+            std::thread::spawn(move || {
+                for stream in listener.incoming().flatten() {
+                    let (active, peak) = (Arc::clone(&active), Arc::clone(&peak));
+                    std::thread::spawn(move || {
+                        let mut stream = stream;
+                        let mut buf = [0u8; 1024];
+                        let _ = stream.read(&mut buf);
+                        let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                        peak.fetch_max(now, Ordering::SeqCst);
+                        std::thread::sleep(Duration::from_millis(150));
+                        active.fetch_sub(1, Ordering::SeqCst);
+                        stream
+                            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                            .ok();
+                    });
+                }
+            });
+        }
+        let client = ImageClient::new().expect("cliente de imágenes");
+        let downloads: Vec<_> = (0..12)
+            .map(|i| {
+                let request = Request::builder()
+                    .uri(format!("http://127.0.0.1:{port}/{i}.png"))
+                    .body(AsyncBody::empty())
+                    .expect("petición de prueba");
+                client.send(request)
+            })
+            .collect();
+
+        let results = futures::executor::block_on(futures::future::join_all(downloads));
+
+        assert!(results.iter().all(|r| r.is_ok()));
+        assert!(peak.load(Ordering::SeqCst) <= WORKERS, "{peak:?}");
+        assert!(peak.load(Ordering::SeqCst) > 1, "{peak:?}");
+    }
 
     fn encode_png(image: &RgbaImage) -> Vec<u8> {
         let mut out = Cursor::new(Vec::new());

@@ -60,6 +60,22 @@ impl Cache {
             .collect()
     }
 
+    /// Las claves de las copias de la carpeta principal que empiezan por
+    /// `prefix`, como `list-`.
+    pub fn keys_with_prefix(&self, prefix: &str) -> Vec<String> {
+        let Ok(dir) = fs::read_dir(&self.dir) else {
+            return Vec::new();
+        };
+        dir.flatten()
+            .filter_map(|file| {
+                let name = file.file_name().to_string_lossy().into_owned();
+                name.strip_suffix(".json")
+                    .filter(|key| key.starts_with(prefix))
+                    .map(str::to_owned)
+            })
+            .collect()
+    }
+
     /// Escribe en un archivo aparte y lo renombra, para que un corte a
     /// medias no deje un JSON roto.
     pub fn store<T: Serialize>(&self, key: &str, value: &T) {

@@ -128,7 +128,8 @@ impl ApiClient {
     /// `GET` que guarda la respuesta en disco con el nombre `key` si
     /// `keep(&respuesta)`. Sin red, responde con lo guardado, pasado por
     /// `from_copy` para aplicarle los cambios que esperan en la cola. Antes
-    /// manda esos cambios, para que la respuesta ya los incluya.
+    /// manda esos cambios, para que la respuesta ya los incluya. Sin red y
+    /// sin copia, el error es `missing`, si se da.
     pub(crate) fn get_cached<T, Q>(
         &self,
         key: &str,
@@ -136,6 +137,7 @@ impl ApiClient {
         query: &Q,
         keep: impl Fn(&T) -> bool,
         from_copy: impl Fn(T) -> T,
+        missing: Option<&str>,
     ) -> Result<T>
     where
         T: DeserializeOwned + Serialize,
@@ -164,7 +166,7 @@ impl ApiClient {
                         self.offline.store(true, Ordering::Relaxed);
                         Ok(from_copy(value))
                     }
-                    None => Err(failure.message),
+                    None => Err(missing.map_or(failure.message, str::to_owned)),
                 }
             }
             Err(failure) => Err(failure.message),
@@ -187,7 +189,11 @@ impl ApiClient {
                 &queued.update,
             ) {
                 Err(failure) if failure.retry => break,
-                _ => pending.forget(id, &queued.update),
+                Ok(summary) => {
+                    self.copy_sent(queued.before, &summary);
+                    pending.forget(id, &queued.update);
+                }
+                Err(_) => pending.forget(id, &queued.update),
             }
         }
     }

@@ -15,7 +15,11 @@ use atalaya_api::{
 };
 use reqwest::Method;
 
+use super::pending::{Before, Queued};
 use super::{ApiClient, Result, check, read_json};
+
+/// Sin red, al abrir un artículo que nunca se bajó (#65).
+pub const NOT_DOWNLOADED: &str = "Sin conexión: este artículo no se descargó antes";
 
 pub(super) fn entry_key(id: Id) -> String {
     format!("entries/{id}")
@@ -105,6 +109,7 @@ impl ApiClient {
             &(),
             |_| true,
             |sidebar| self.with_queued_counts(sidebar),
+            None,
         )
     }
 
@@ -118,6 +123,7 @@ impl ApiClient {
                 query,
                 |_| true,
                 |page| self.with_queued_page(query, page),
+                None,
             );
         };
         match read_json(
@@ -179,6 +185,7 @@ impl ApiClient {
                     .or_else(|| arxiv_id_from_url(&entry.summary.url));
                 entry
             },
+            Some(NOT_DOWNLOADED),
         )
     }
 
@@ -237,17 +244,18 @@ impl ApiClient {
         let id = current.id;
         // Mientras se envía, nadie más manda la cola: así no se cruzan.
         let _turn = self.sending.lock().unwrap_or_else(PoisonError::into_inner);
-        let sent = match &self.pending {
-            Some(pending) => match pending.latest(id) {
-                Some(sent) => sent,
+        let (sent, before) = match &self.pending {
+            Some(pending) => match pending.get(id) {
+                Some(queued) => (queued.update, queued.before),
                 None => return Ok(applied(current, update)),
             },
-            None => update.clone(),
+            None => (update.clone(), None),
         };
         let result = self.try_send_json(Method::PATCH, &format!("/api/entries/{id}"), &sent);
         match result {
             Ok(summary) => {
                 self.offline.store(false, Ordering::Relaxed);
+                self.copy_sent(before, &summary);
                 self.forget(id, &sent);
                 Ok(summary)
             }
@@ -261,6 +269,50 @@ impl ApiClient {
                 self.forget(id, &sent);
                 Err(failure.into())
             }
+        }
+    }
+
+    /// Pasa a la copia en disco un cambio que el servicio ya aceptó, para
+    /// que sin red se vea igual que con red (#65): el artículo, las filas de
+    /// las listas guardadas y, si se sabe cómo estaba antes, las cifras del
+    /// menú. Una fila que deja de encajar en su vista (un leído en «Sin
+    /// leer») sale de esa página.
+    pub(super) fn copy_sent(&self, before: Option<Before>, after: &EntrySummary) {
+        let Some(cache) = &self.cache else {
+            return;
+        };
+        let key = entry_key(after.id);
+        if let Some(mut entry) = cache.load::<Entry>(&key) {
+            entry.summary.read = after.read;
+            entry.summary.starred = after.starred;
+            cache.store(&key, &entry);
+        }
+        for key in cache.keys_with_prefix("list-") {
+            let Some(mut page) = cache.load::<EntryPage>(&key) else {
+                continue;
+            };
+            let Some(at) = page.entries.iter().position(|e| e.id == after.id) else {
+                continue;
+            };
+            let row = &mut page.entries[at];
+            row.read = after.read;
+            row.starred = after.starred;
+            if !list_view(&key).is_none_or(|view| in_view(view, row)) {
+                page.entries.remove(at);
+                page.total = page.total.saturating_sub(1);
+            }
+            cache.store(&key, &page);
+        }
+        if let Some((before, mut sidebar)) = before.zip(cache.load::<Sidebar>("sidebar")) {
+            let queued = Queued {
+                update: EntryUpdate {
+                    read: Some(after.read),
+                    starred: Some(after.starred),
+                },
+                before: Some(before),
+            };
+            sidebar = counted(sidebar, &queued);
+            cache.store("sidebar", &sidebar);
         }
     }
 
@@ -327,25 +379,7 @@ impl ApiClient {
             return sidebar;
         };
         for (_, queued) in pending.all() {
-            let Some(before) = queued.before else {
-                continue;
-            };
-            let read = queued.update.read.unwrap_or(before.read);
-            let starred = queued.update.starred.unwrap_or(before.starred);
-            let unread = i64::from(!read) - i64::from(!before.read);
-            if unread != 0 {
-                sidebar.unread = shift(sidebar.unread, unread);
-                for category in &mut sidebar.categories {
-                    for feed in category.feeds.iter_mut().filter(|f| f.id == before.feed_id) {
-                        feed.unread = shift(feed.unread, unread);
-                        category.unread = shift(category.unread, unread);
-                    }
-                }
-            }
-            if starred != before.starred {
-                let delta = i64::from(starred) - i64::from(before.starred);
-                sidebar.starred = shift(sidebar.starred, delta);
-            }
+            sidebar = counted(sidebar, &queued);
         }
         sidebar
     }
@@ -380,6 +414,40 @@ impl ApiClient {
             .filter(|entry| seen.insert(entry.id))
             .collect()
     }
+}
+
+/// El menú con un cambio sumado o restado: los sin leer de su feed, su
+/// carpeta y el total, y los guardados. Sin saber cómo estaba antes, no
+/// cambia nada.
+fn counted(mut sidebar: Sidebar, queued: &Queued) -> Sidebar {
+    let Some(before) = queued.before else {
+        return sidebar;
+    };
+    let read = queued.update.read.unwrap_or(before.read);
+    let starred = queued.update.starred.unwrap_or(before.starred);
+    let unread = i64::from(!read) - i64::from(!before.read);
+    if unread != 0 {
+        sidebar.unread = shift(sidebar.unread, unread);
+        for category in &mut sidebar.categories {
+            for feed in category.feeds.iter_mut().filter(|f| f.id == before.feed_id) {
+                feed.unread = shift(feed.unread, unread);
+                category.unread = shift(category.unread, unread);
+            }
+        }
+    }
+    if starred != before.starred {
+        let delta = i64::from(starred) - i64::from(before.starred);
+        sidebar.starred = shift(sidebar.starred, delta);
+    }
+    sidebar
+}
+
+/// La vista de una página guardada, por su nombre en disco (`list_key`).
+fn list_view(key: &str) -> Option<View> {
+    let rest = key.strip_prefix("list-")?;
+    [View::All, View::Unread, View::Starred]
+        .into_iter()
+        .find(|view| rest.starts_with(&format!("{view:?}-").to_lowercase()))
 }
 
 /// `summary` con los cambios de `update`.
@@ -699,6 +767,75 @@ mod tests {
         let copy = offline_client(&dir).entry(7).expect("sin red, de la copia");
 
         assert!(copy.summary.read);
+    }
+
+    #[test]
+    fn offline_entry_without_copy_says_it_was_not_downloaded() {
+        let dir = TempDir::new();
+
+        let error = offline_client(&dir).entry(9).expect_err("sin red ni copia");
+
+        assert_eq!(error, NOT_DOWNLOADED);
+    }
+
+    #[test]
+    fn change_sent_online_reaches_the_copy() {
+        let dir = TempDir::new();
+        let entry: Entry =
+            serde_json::from_str(&entry_body("done", Some("<p>Uno.</p>"))).expect("artículo");
+        dir.cache().store(&entry_key(7), &entry);
+        let unread = EntryQuery {
+            view: View::Unread,
+            ..Default::default()
+        };
+        seed_page(&dir, &unread, vec![summary(8), summary(7)], 2);
+        seed_page(
+            &dir,
+            &EntryQuery::default(),
+            vec![summary(8), summary(7)],
+            2,
+        );
+        dir.cache().store(
+            "sidebar",
+            &Sidebar {
+                total: 2,
+                unread: 2,
+                starred: 0,
+                categories: vec![SidebarCategory {
+                    id: 1,
+                    title: "Noticias".into(),
+                    unread: 2,
+                    feeds: vec![SidebarFeed {
+                        id: 1,
+                        title: "A".into(),
+                        unread: 2,
+                    }],
+                }],
+            },
+        );
+        let body = serde_json::to_string(&article(7, 1, true, false)).expect("cuerpo de prueba");
+        let (port, service) = serve_once(body);
+        let client = client_at(&dir, port);
+
+        client.queue_change(&summary(7), &read(true));
+        client
+            .update_entry(&summary(7), &read(true))
+            .expect("el servicio responde");
+        service.join().expect("el servicio de prueba falló");
+
+        // Después se va la red: todo sale de la copia, ya con el cambio.
+        let offline = offline_client(&dir);
+        assert!(offline.entry(7).expect("de la copia").summary.read);
+        let page = offline.entries(&unread).expect("de la copia");
+        assert_eq!((ids(&page), page.total), (vec![8], 1));
+        let page = offline
+            .entries(&EntryQuery::default())
+            .expect("de la copia");
+        assert_eq!(ids(&page), vec![8, 7]);
+        assert!(page.entries[1].read);
+        let sidebar = offline.sidebar().expect("de la copia");
+        assert_eq!(sidebar.unread, 1);
+        assert_eq!(sidebar.categories[0].feeds[0].unread, 1);
     }
 
     #[test]
