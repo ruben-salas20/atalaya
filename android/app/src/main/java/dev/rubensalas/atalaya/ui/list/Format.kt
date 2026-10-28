@@ -1,5 +1,6 @@
 package dev.rubensalas.atalaya.ui.list
 
+import dev.rubensalas.atalaya.ui.relativeTime
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -27,6 +28,14 @@ fun shortAge(at: Instant, now: Instant = Instant.now(), zone: ZoneId = ZoneId.sy
         }
     }
 }
+
+/**
+ * La fecha en la cabecera de un artículo: «hace 3 días» o, si pasó una semana
+ * o más, la fecha («4 mar 2019»). Antes salía «hace 727 días» (#24).
+ */
+fun articleAge(at: Instant, now: Instant = Instant.now(), zone: ZoneId = ZoneId.systemDefault()): String =
+    if (Duration.between(at, now).toDays() < 7) relativeTime(at, now)
+    else shortAge(at, now, zone)
 
 /** La etiqueta del idioma original (L2): `EN`, o null si es español o aún no se sabe. */
 fun langBadge(lang: String?): String? =

@@ -70,7 +70,7 @@ import dev.rubensalas.atalaya.data.api.Entry
 import dev.rubensalas.atalaya.data.api.Id
 import dev.rubensalas.atalaya.data.api.Progress
 import dev.rubensalas.atalaya.data.api.TranslationState
-import dev.rubensalas.atalaya.ui.relativeTime
+import dev.rubensalas.atalaya.ui.list.articleAge
 import dev.rubensalas.atalaya.ui.theme.Atalaya
 
 /** Artículo abierto (pantallas 3 y 4). */
@@ -277,7 +277,7 @@ private fun ArticleBody(entry: Entry, state: ArticleUiState, full: FullTextState
         item(key = "head") {
             Column {
                 Text(
-                    listOfNotNull(entry.feedTitle, entry.author, relativeTime(entry.publishedAt)).joinToString(" · "),
+                    listOfNotNull(entry.feedTitle, entry.author, articleAge(entry.publishedAt)).joinToString(" · "),
                     fontSize = 13.sp,
                     color = c.text2,
                     modifier = Modifier.padding(bottom = 10.dp),
