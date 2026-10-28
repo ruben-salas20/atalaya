@@ -23,6 +23,13 @@ class FormatTest {
     }
 
     @Test
+    fun articleAgeShowsTheDateWhenOld() {
+        assertEquals("hace 3 días", articleAge(now - Duration.ofDays(3), now, ZoneOffset.UTC))
+        assertEquals("1 oct", articleAge(now - Duration.ofDays(22), now, ZoneOffset.UTC))
+        assertEquals("4 mar 2019", articleAge(Instant.parse("2019-03-04T12:00:00Z"), now, ZoneOffset.UTC))
+    }
+
+    @Test
     fun futureDatesCountAsNow() {
         assertEquals("ahora", shortAge(now + Duration.ofHours(1), now, ZoneOffset.UTC))
     }

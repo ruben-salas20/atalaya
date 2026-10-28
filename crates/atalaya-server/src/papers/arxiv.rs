@@ -32,6 +32,9 @@ const CACHE_MAX: usize = 200;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Con «Más recientes», cuántos de los más relevantes se ordenan por fecha.
+const RECENT_POOL: u32 = 100;
+
 /// Palabras que no se mandan sueltas a arXiv. Son las que su buscador
 /// (Lucene) no indexa: exigir `all:is` deja la búsqueda casi sin resultados.
 /// Además, `and`, `or` y `not` son operadores de su API.
@@ -95,14 +98,31 @@ impl Arxiv {
     ) -> Result<ArxivPage, AppError> {
         let query = search_query(english, field)
             .ok_or_else(|| AppError::bad_request("la búsqueda no tiene palabras que buscar"))?;
-        let (sort_by, order) = match sort {
-            PaperSort::Recent => ("submittedDate", "descending"),
-            PaperSort::Relevance => ("relevance", "descending"),
+        // Ordenado por fecha, arXiv pone arriba papers nuevos que apenas
+        // tratan del tema (#24). Por eso se piden los más relevantes y se
+        // ordenan aquí por fecha. Por autor no hace falta: todos son suyos.
+        if sort == PaperSort::Recent && field != PaperField::Author {
+            let page = self.query(query, "relevance", 0, RECENT_POOL).await?;
+            return Ok(newest_first(page, start, max_results));
+        }
+        let sort_by = match sort {
+            PaperSort::Recent => "submittedDate",
+            PaperSort::Relevance => "relevance",
         };
+        self.query(query, sort_by, start, max_results).await
+    }
+
+    async fn query(
+        &self,
+        query: String,
+        sort_by: &str,
+        start: u32,
+        max_results: u32,
+    ) -> Result<ArxivPage, AppError> {
         let params = [
             ("search_query", query),
             ("sortBy", sort_by.into()),
-            ("sortOrder", order.into()),
+            ("sortOrder", "descending".into()),
             ("start", start.to_string()),
             ("max_results", max_results.to_string()),
         ];
@@ -182,6 +202,21 @@ impl Arxiv {
         tracing::debug!(secs = started.elapsed().as_secs_f32(), "arXiv: {url}");
         Ok(text)
     }
+}
+
+/// Una página de los papers ordenados del más nuevo al más viejo. El total
+/// es cuántos hay para ordenar, no cuántos encontró arXiv.
+fn newest_first(mut page: ArxivPage, start: u32, max_results: u32) -> ArxivPage {
+    page.papers
+        .sort_by_key(|p| std::cmp::Reverse(p.published_at));
+    let total = page.papers.len() as u64;
+    let papers = page
+        .papers
+        .into_iter()
+        .skip(start as usize)
+        .take(max_results as usize)
+        .collect();
+    ArxivPage { total, papers }
 }
 
 /// La búsqueda en la sintaxis de arXiv: cada palabra con el prefijo del
@@ -662,6 +697,23 @@ mod tests {
         assert_eq!(id_in_query("attention is all you need"), None);
         assert_eq!(id_in_query("1706.03762 transformers"), None);
         assert_eq!(id_in_query("2024"), None);
+    }
+
+    #[test]
+    fn recent_sorts_the_relevant_ones_by_date() {
+        let page = parse(SAMPLE).unwrap();
+        let mut papers = page.papers.clone();
+        papers.reverse();
+        let pool = ArxivPage {
+            total: 12644,
+            papers,
+        };
+        let first = newest_first(pool.clone(), 0, 1);
+        assert_eq!(first.total, 2, "el total es el de los que se ordenan");
+        assert_eq!(first.papers[0].arxiv_id, "2610.31483");
+        let second = newest_first(pool.clone(), 1, 1);
+        assert_eq!(second.papers[0].arxiv_id, "hep-th/9901001");
+        assert!(newest_first(pool, 2, 20).papers.is_empty());
     }
 
     #[test]
