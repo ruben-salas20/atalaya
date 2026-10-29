@@ -272,6 +272,7 @@ impl FeedsScreen {
             feed_url: found.feed_url.clone(),
             category_id,
             crawler: self.crawler,
+            scraper_rules: String::new(),
         };
         self.run(
             window,
@@ -312,6 +313,7 @@ impl FeedsScreen {
             title: Some(self.name.read(cx).value().trim().to_owned()),
             category_id: self.folder,
             crawler: Some(self.crawler),
+            scraper_rules: None,
         };
         self.run(
             window,

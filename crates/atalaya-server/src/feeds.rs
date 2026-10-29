@@ -82,6 +82,7 @@ async fn create_feed(
     ApiJson(req): ApiJson<NewFeed>,
 ) -> AppResult<(StatusCode, Json<Feed>)> {
     let feed_url = normalize_url(&req.feed_url)?;
+    let scraper_rules = scraper_rules(&req.scraper_rules)?;
     // Miniflux descarga cada artículo antes de responder y puede tardar más de
     // lo que espera la app. Si la app corta, axum suelta este handler: en una
     // tarea aparte, el feed nuevo llega igual a la cola de títulos (#34).
@@ -90,7 +91,7 @@ async fn create_feed(
         async move {
             let id = state
                 .miniflux
-                .create_feed(&feed_url, req.category_id, req.crawler)
+                .create_feed(&feed_url, req.category_id, req.crawler, &scraper_rules)
                 .await
                 .map_err(remote_error)?;
             state.stats.clear();
@@ -114,10 +115,16 @@ async fn update_feed(
     ApiJson(req): ApiJson<FeedUpdate>,
 ) -> AppResult<Json<Feed>> {
     let title = req.title.as_deref().map(non_empty_title).transpose()?;
+    let scraper_rules = req
+        .scraper_rules
+        .as_deref()
+        .map(scraper_rules)
+        .transpose()?;
     let body = MinifluxFeedModification {
         title,
         category_id: req.category_id,
         crawler: req.crawler,
+        scraper_rules,
     };
     let feed = state.miniflux.update_feed(id, &body).await?;
     state.stats.clear();
@@ -237,6 +244,27 @@ fn non_empty_title(title: &str) -> AppResult<String> {
     }
 }
 
+/// Límite de la regla de extracción: un selector CSS cabe de sobra.
+const SCRAPER_RULES_MAX: usize = 500;
+
+/// Limpia la regla de extracción: sin espacios en los bordes ni saltos de
+/// línea. Miniflux no comprueba el selector; uno mal escrito deja el
+/// artículo vacío, y se arregla editando el feed.
+fn scraper_rules(rules: &str) -> AppResult<String> {
+    let rules = rules.trim();
+    if rules.chars().count() > SCRAPER_RULES_MAX {
+        Err(AppError::bad_request(format!(
+            "la regla de extracción no puede pasar de {SCRAPER_RULES_MAX} caracteres"
+        )))
+    } else if rules.chars().any(char::is_control) {
+        Err(AppError::bad_request(
+            "la regla de extracción debe ir en una sola línea",
+        ))
+    } else {
+        Ok(rules.to_owned())
+    }
+}
+
 /// Descarga un feed encontrado y calcula su idioma y artículos al día. Si no
 /// se puede, lo devuelve igual, sin esos datos.
 async fn analyze_remote(http: &reqwest::Client, sub: MinifluxSubscription) -> DiscoveredFeed {
@@ -317,6 +345,7 @@ fn feed_from_miniflux(feed: MinifluxFeed, stats: FeedStats) -> Feed {
         feed_url: feed.feed_url,
         category: feed.category.into(),
         crawler: feed.crawler,
+        scraper_rules: feed.scraper_rules,
         lang: stats.lang,
         articles_per_day: stats.articles_per_day,
         // Miniflux pone el año 1 a un feed que aún no ha comprobado.
@@ -360,6 +389,8 @@ struct MinifluxFeed {
     category: MinifluxCategory,
     crawler: bool,
     #[serde(default)]
+    scraper_rules: String,
+    #[serde(default)]
     language: String,
     checked_at: Option<DateTime<Utc>>,
     #[serde(default)]
@@ -400,6 +431,8 @@ struct MinifluxFeedModification {
     category_id: Option<Id>,
     #[serde(skip_serializing_if = "Option::is_none")]
     crawler: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scraper_rules: Option<String>,
 }
 
 impl Miniflux {
@@ -420,12 +453,20 @@ impl Miniflux {
         self.get(&format!("/v1/feeds/{id}")).await
     }
 
-    async fn create_feed(&self, feed_url: &str, category_id: Id, crawler: bool) -> AppResult<Id> {
+    async fn create_feed(
+        &self,
+        feed_url: &str,
+        category_id: Id,
+        crawler: bool,
+        scraper_rules: &str,
+    ) -> AppResult<Id> {
         #[derive(Serialize)]
         struct Body<'a> {
             feed_url: &'a str,
             category_id: Id,
             crawler: bool,
+            #[serde(skip_serializing_if = "str::is_empty")]
+            scraper_rules: &'a str,
         }
         #[derive(Deserialize)]
         struct Created {
@@ -439,6 +480,7 @@ impl Miniflux {
                     feed_url,
                     category_id,
                     crawler,
+                    scraper_rules,
                 },
             )
             .await?;
@@ -599,11 +641,64 @@ mod tests {
             title: None,
             category_id: Some(4),
             crawler: Some(false),
+            scraper_rules: None,
         };
         assert_eq!(
             serde_json::to_value(&body).unwrap(),
             serde_json::json!({"category_id": 4, "crawler": false})
         );
+        // Una regla vacía sí se envía: es la forma de quitarla.
+        let body = MinifluxFeedModification {
+            title: None,
+            category_id: None,
+            crawler: None,
+            scraper_rules: Some(String::new()),
+        };
+        assert_eq!(
+            serde_json::to_value(&body).unwrap(),
+            serde_json::json!({"scraper_rules": ""})
+        );
+    }
+
+    #[test]
+    fn cleans_scraper_rules() {
+        assert_eq!(
+            scraper_rules("  article .content ").unwrap(),
+            "article .content"
+        );
+        assert_eq!(scraper_rules("   ").unwrap(), "");
+        assert!(scraper_rules("article\nmain").is_err());
+        assert!(scraper_rules(&"a".repeat(501)).is_err());
+        assert!(scraper_rules(&"a".repeat(500)).is_ok());
+    }
+
+    #[test]
+    fn reads_scraper_rules_from_miniflux() {
+        let mf: MinifluxFeed = serde_json::from_str(MINIFLUX_FEED).unwrap();
+        assert_eq!(
+            feed_from_miniflux(mf, FeedStats::default()).scraper_rules,
+            ""
+        );
+        let json = MINIFLUX_FEED.replace(
+            r#""crawler": true,"#,
+            r#""crawler": true, "scraper_rules": "article","#,
+        );
+        let mf: MinifluxFeed = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            feed_from_miniflux(mf, FeedStats::default()).scraper_rules,
+            "article"
+        );
+    }
+
+    #[test]
+    fn old_apps_still_create_feeds() {
+        let req: NewFeed = serde_json::from_str(
+            r#"{"feed_url": "https://a.example/rss", "category_id": 1, "crawler": true}"#,
+        )
+        .unwrap();
+        assert_eq!(req.scraper_rules, "");
+        let update: FeedUpdate = serde_json::from_str(r#"{"crawler": true}"#).unwrap();
+        assert_eq!(update.scraper_rules, None);
     }
 
     #[test]

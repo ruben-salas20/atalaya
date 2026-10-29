@@ -120,6 +120,7 @@ mod tests {
             feed_url: "https://example.com/feed".into(),
             category_id: 1,
             crawler: true,
+            scraper_rules: String::new(),
         };
 
         let added = client.add_feed_within(&feed, Duration::from_secs(1));
