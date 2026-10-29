@@ -309,6 +309,11 @@ pub struct NewFeed {
     pub category_id: Id,
     /// Descargar el artículo completo: el «crawler» de Miniflux.
     pub crawler: bool,
+    /// Regla de extracción: un selector CSS que dice qué parte de la página
+    /// es el artículo (`scraper_rules` de Miniflux). Vacía: Miniflux lo
+    /// adivina. Sirve solo con `crawler`.
+    #[serde(default)]
+    pub scraper_rules: String,
 }
 
 /// `PATCH /api/feeds/{id}` (F4). Los campos que faltan no cambian.
@@ -317,6 +322,9 @@ pub struct FeedUpdate {
     pub title: Option<String>,
     pub category_id: Option<Id>,
     pub crawler: Option<bool>,
+    /// Vacía la quita.
+    #[serde(default)]
+    pub scraper_rules: Option<String>,
 }
 
 /// Un feed suscrito (F2, F4, F6).
@@ -328,6 +336,9 @@ pub struct Feed {
     pub feed_url: String,
     pub category: Category,
     pub crawler: bool,
+    /// Regla de extracción; vacía si no tiene (ver [`NewFeed`]).
+    #[serde(default)]
+    pub scraper_rules: String,
     /// Idioma de sus artículos en ISO 639-1, o `None` si no se sabe aún.
     pub lang: Option<String>,
     pub articles_per_day: Option<f64>,
