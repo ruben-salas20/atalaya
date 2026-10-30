@@ -188,6 +188,8 @@ data class NewFeed(
     @SerialName("feed_url") val feedUrl: String,
     @SerialName("category_id") val categoryId: Id,
     val crawler: Boolean,
+    /** Regla de extracción: selector CSS del artículo. Vacía: Miniflux la adivina. */
+    @SerialName("scraper_rules") val scraperRules: String = "",
 )
 
 /** `PATCH /api/feeds/{id}` (F4). Lo que es null no cambia. */
@@ -196,6 +198,8 @@ data class FeedUpdate(
     val title: String? = null,
     @SerialName("category_id") val categoryId: Id? = null,
     val crawler: Boolean? = null,
+    /** Vacía la quita. */
+    @SerialName("scraper_rules") val scraperRules: String? = null,
 )
 
 /** Un feed suscrito (F2, F4, F6). */
@@ -207,6 +211,7 @@ data class Feed(
     @SerialName("feed_url") val feedUrl: String,
     val category: Category,
     val crawler: Boolean,
+    @SerialName("scraper_rules") val scraperRules: String = "",
     val lang: String? = null,
     @SerialName("articles_per_day") val articlesPerDay: Double? = null,
     @SerialName("checked_at") @Serializable(InstantSerializer::class) val checkedAt: Instant? = null,

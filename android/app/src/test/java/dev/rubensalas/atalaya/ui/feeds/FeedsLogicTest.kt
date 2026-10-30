@@ -70,5 +70,8 @@ class FeedsLogicTest {
         assertNull(base.update)
         assertEquals(FeedUpdate(title = "Verge"), base.copy(title = " Verge ").update)
         assertEquals(FeedUpdate(categoryId = 1, crawler = false), base.copy(categoryId = 1, crawler = false).update)
+        assertEquals(FeedUpdate(scraperRules = "article"), base.copy(scraperRules = " article ").update)
+        // Sin el artículo completo la regla no se envía.
+        assertEquals(FeedUpdate(crawler = false), base.copy(crawler = false, scraperRules = "article").update)
     }
 }

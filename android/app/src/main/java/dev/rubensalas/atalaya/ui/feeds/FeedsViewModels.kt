@@ -108,6 +108,7 @@ data class AddFeedUiState(
     val categories: List<Category> = emptyList(),
     val categoryId: Id? = null,
     val crawler: Boolean = false,
+    val scraperRules: String = "",
     val adding: Boolean = false,
     val error: String? = null,
     val done: Boolean = false,
@@ -163,6 +164,8 @@ class AddFeedViewModel(private val client: AtalayaClient) : ViewModel() {
 
     fun setCrawler(on: Boolean) = _state.update { it.copy(crawler = on) }
 
+    fun setScraperRules(rules: String) = _state.update { it.copy(scraperRules = rules) }
+
     fun createFolder(title: String) {
         viewModelScope.launch {
             try {
@@ -183,7 +186,15 @@ class AddFeedViewModel(private val client: AtalayaClient) : ViewModel() {
         _state.update { it.copy(adding = true, error = null) }
         viewModelScope.launch {
             try {
-                val added = client.addFeed(NewFeed(feedUrl = feed.feedUrl, categoryId = s.categoryId!!, crawler = s.crawler))
+                val added = client.addFeed(
+                    NewFeed(
+                        feedUrl = feed.feedUrl,
+                        categoryId = s.categoryId!!,
+                        crawler = s.crawler,
+                        // Miniflux solo usa la regla con el artículo completo.
+                        scraperRules = if (s.crawler) s.scraperRules.trim() else "",
+                    ),
+                )
                 _state.update { it.copy(adding = false, done = true, slow = added == null) }
             } catch (e: ApiException) {
                 _state.update { it.copy(adding = false, error = e.userMessage()) }
@@ -203,6 +214,7 @@ data class EditFeedUiState(
     val title: String = "",
     val categoryId: Id? = null,
     val crawler: Boolean = false,
+    val scraperRules: String = "",
     val saving: Boolean = false,
     val confirmDelete: Boolean = false,
     val error: String? = null,
@@ -216,6 +228,8 @@ data class EditFeedUiState(
                 title = title.trim().takeIf { it != f.title },
                 categoryId = categoryId.takeIf { it != f.category.id },
                 crawler = crawler.takeIf { it != f.crawler },
+                // Sin el artículo completo la regla no se usa y no se toca.
+                scraperRules = scraperRules.trim().takeIf { crawler && it != f.scraperRules },
             )
             return u.takeIf { it != FeedUpdate() }
         }
@@ -254,6 +268,7 @@ class EditFeedViewModel(private val client: AtalayaClient, private val id: Id) :
                             title = feed.title,
                             categoryId = feed.category.id,
                             crawler = feed.crawler,
+                            scraperRules = feed.scraperRules,
                         )
                     }
                 }
@@ -268,6 +283,8 @@ class EditFeedViewModel(private val client: AtalayaClient, private val id: Id) :
     fun setCategory(id: Id) = _state.update { it.copy(categoryId = id) }
 
     fun setCrawler(on: Boolean) = _state.update { it.copy(crawler = on) }
+
+    fun setScraperRules(rules: String) = _state.update { it.copy(scraperRules = rules) }
 
     fun save() {
         val s = _state.value

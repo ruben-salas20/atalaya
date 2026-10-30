@@ -147,6 +147,9 @@ fun AddFeedScreen(container: AppContainer, onDone: () -> Unit) {
                     )
                 }
                 CrawlerToggle(state.crawler, vm::setCrawler, enabled = !state.adding)
+                if (state.crawler) {
+                    ScraperRulesField(state.scraperRules, vm::setScraperRules, enabled = !state.adding)
+                }
                 PrimaryButton("Añadir", onClick = vm::add, enabled = state.canAdd, busy = state.adding)
             }
         }
