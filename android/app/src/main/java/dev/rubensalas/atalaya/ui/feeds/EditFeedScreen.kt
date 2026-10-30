@@ -70,6 +70,9 @@ fun EditFeedScreen(container: AppContainer, id: Id, onDone: () -> Unit) {
                         FolderPicker(state.categories, state.categoryId, vm::setCategory, enabled = !state.saving)
                     }
                     CrawlerToggle(state.crawler, vm::setCrawler, enabled = !state.saving)
+                    if (state.crawler) {
+                        ScraperRulesField(state.scraperRules, vm::setScraperRules, enabled = !state.saving)
+                    }
                     Column {
                         StatRow("Dirección", withoutScheme(feed.feedUrl))
                         StatRow("Última actualización", feed.checkedAt?.let { relativeTime(it) } ?: "Nunca")

@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
@@ -31,6 +33,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldColors
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -42,15 +45,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material3.TextButton
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import dev.rubensalas.atalaya.data.api.Category
 import dev.rubensalas.atalaya.data.api.Id
 import dev.rubensalas.atalaya.ui.theme.Atalaya
@@ -179,6 +180,27 @@ fun FolderPicker(
                 })
             }
         }
+    }
+}
+
+/** Regla de extracción (#33): selector CSS del artículo; solo con el artículo completo. */
+@Composable
+fun ScraperRulesField(value: String, onChange: (String) -> Unit, enabled: Boolean = true) {
+    Column {
+        FieldLabel("Regla de extracción")
+        FormTextField(
+            value = value,
+            onValueChange = onChange,
+            enabled = enabled,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+        )
+        Text(
+            "Selector CSS de la parte de la página que es el artículo, como «article .content». Vacía: Miniflux la adivina",
+            fontSize = 12.5.sp,
+            lineHeight = 17.sp,
+            color = Atalaya.colors.text3,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 

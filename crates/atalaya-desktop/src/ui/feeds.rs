@@ -55,6 +55,8 @@ pub struct FeedsScreen {
     new_folder: Entity<InputState>,
     creating_folder: bool,
     crawler: bool,
+    /// Regla de extracción: selector CSS del artículo (`scraper_rules`).
+    scraper_rules: Entity<InputState>,
     /// Se pidió quitar o borrar y falta confirmarlo.
     confirming: bool,
     busy: bool,
@@ -70,6 +72,8 @@ impl FeedsScreen {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let url = cx.new(|cx| InputState::new(window, cx).placeholder("theverge.com"));
         let name = cx.new(|cx| InputState::new(window, cx));
+        let scraper_rules =
+            cx.new(|cx| InputState::new(window, cx).placeholder("article .content"));
         let new_folder =
             cx.new(|cx| InputState::new(window, cx).placeholder("Nombre de la carpeta"));
         let subscriptions = vec![
@@ -102,6 +106,7 @@ impl FeedsScreen {
             new_folder,
             creating_folder: false,
             crawler: false,
+            scraper_rules,
             confirming: false,
             busy: false,
             message: None,
@@ -175,6 +180,8 @@ impl FeedsScreen {
         self.found.clear();
         self.chosen = 0;
         self.crawler = false;
+        self.scraper_rules
+            .update(cx, |input, cx| input.set_value("", window, cx));
         self.folder = self.categories.first().map(|c| c.id);
         self.url.update(cx, |input, cx| {
             input.set_value("", window, cx);
@@ -188,8 +195,11 @@ impl FeedsScreen {
             return;
         };
         let title = feed.title.clone();
+        let rules = feed.scraper_rules.clone();
         self.folder = Some(feed.category.id);
         self.crawler = feed.crawler;
+        self.scraper_rules
+            .update(cx, |input, cx| input.set_value(rules, window, cx));
         self.reset_panel(Panel::Feed(id));
         self.name
             .update(cx, |input, cx| input.set_value(title, window, cx));
@@ -272,7 +282,7 @@ impl FeedsScreen {
             feed_url: found.feed_url.clone(),
             category_id,
             crawler: self.crawler,
-            scraper_rules: String::new(),
+            scraper_rules: self.rules(cx).unwrap_or_default(),
         };
         self.run(
             window,
@@ -313,7 +323,7 @@ impl FeedsScreen {
             title: Some(self.name.read(cx).value().trim().to_owned()),
             category_id: self.folder,
             crawler: Some(self.crawler),
-            scraper_rules: None,
+            scraper_rules: self.rules(cx),
         };
         self.run(
             window,
@@ -737,6 +747,7 @@ impl FeedsScreen {
         );
         form.push(self.folder_picker(p, cx));
         form.push(self.crawler_toggle(p, cx));
+        form.extend(self.rules_field(p));
         form.push(
             primary(
                 "add",
@@ -794,6 +805,10 @@ impl FeedsScreen {
                 .into_any_element(),
             self.folder_picker(p, cx),
             self.crawler_toggle(p, cx),
+        ]
+        .into_iter()
+        .chain(self.rules_field(p))
+        .chain([
             div().children(facts).into_any_element(),
             primary(
                 "save-feed",
@@ -820,7 +835,8 @@ impl FeedsScreen {
                 cx,
                 move |this, window, cx| this.delete_feed(id, window, cx),
             ),
-        ]
+        ])
+        .collect()
     }
 
     fn folder_form(
@@ -999,6 +1015,28 @@ impl FeedsScreen {
             .children(options)
             .children(create)
             .into_any_element()
+    }
+
+    /// La regla escrita, o `None` si no se descarga el artículo completo:
+    /// Miniflux solo la usa con el «crawler», y así no se toca.
+    fn rules(&self, cx: &Context<Self>) -> Option<String> {
+        self.crawler
+            .then(|| self.scraper_rules.read(cx).value().trim().to_owned())
+    }
+
+    /// Campo de la regla de extracción; solo con el artículo completo.
+    fn rules_field(&self, p: &Palette) -> Option<AnyElement> {
+        self.crawler.then(|| {
+            div()
+                .child(label("Regla de extracción", p))
+                .child(Input::new(&self.scraper_rules))
+                .child(help(
+                    "Selector CSS de la parte de la página que es el artículo. \
+                     Vacía: Miniflux la adivina",
+                    p,
+                ))
+                .into_any_element()
+        })
     }
 
     fn crawler_toggle(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
