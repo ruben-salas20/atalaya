@@ -121,7 +121,7 @@ Los intervalos de predicción de los pronosticadores de series temporales probab
 
 #### Noticias
 
-Sus traducciones no se publican: las noticias son de otros medios y el repositorio es público. Están en la copia local `bench/traduccion/textos-completos.json` y en los resultados completos de ai-lab, en `/data/bots/atalaya-datos/` (ver `bench/traduccion/corpus.py`). Las medidas de arriba sí las incluyen.
+Sus traducciones no se publican: las noticias son de otros medios y el repositorio es público. Están en la copia local `bench/traduccion/textos-completos.json` y en los resultados completos, en `bench/privado/`. Las dos rutas las ignora git y solo están en el clon de ai-lab (ver `bench/traduccion/corpus.py`). Las medidas de arriba sí las incluyen.
 
 - noticia-01 · The Verge · [Apple revives the original iPod as an Apple Music easter egg](https://www.theverge.com/entertainment/1017413/apple-music-ipod-404-page)
 - noticia-02 · The Verge · [Feds want robotaxis to signal ‘I’m driving’ with cyan-colored lights](https://www.theverge.com/transportation/1017435/nhtsa-autonomous-vehicle-cyan-lighting-fmvss)
@@ -146,4 +146,4 @@ La #17 cambió lo que se manda al modelo: en vez del HTML de cada párrafo, etiq
 
 Antes, los párrafos en inglés estaban en noticia-04 (1), noticia-07 (1), noticia-08 (3) y noticia-09 (3); después, solo queda 1 en noticia-08. El riesgo que se temía, que el modelo cambiara la forma de una etiqueta y el párrafo cayera en inglés, no aparece en esta medida. El cambio se queda.
 
-Los resultados completos, con las traducciones, están en ai-lab en `/data/bots/atalaya-datos/m47/`: no se publican porque las noticias son de otros medios.
+Los resultados completos, con las traducciones, están en `bench/privado/m47/`, que git ignora: no se publican porque las noticias son de otros medios.

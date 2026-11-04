@@ -2,8 +2,8 @@
 
 El repositorio es público y las noticias son de otros medios, así que
 `textos.json` guarda de ellas solo el título y el enlace. El texto completo
-está en `textos-completos.json`, en esta misma carpeta, que git ignora. En
-ai-lab hay una copia en `/data/bots/atalaya-datos/textos-completos.json`.
+está en `textos-completos.json`, en esta misma carpeta, que git ignora. Solo
+lo tiene el clon de ai-lab, en `~/projects/atalaya`.
 """
 import json
 import pathlib
@@ -30,6 +30,6 @@ def load(path, kinds=None):
     missing = [t['id'] for t in corpus if 'texto' not in t]
     if missing:
         sys.exit('Faltan los textos de %s en %s. Copia textos-completos.json en %s '
-                 '(en ai-lab: /data/bots/atalaya-datos/) o pasa --tipos sin noticias.'
+                 '(está en el clon de ai-lab) o pasa --tipos sin noticias.'
                  % (', '.join(missing), path, HERE))
     return corpus

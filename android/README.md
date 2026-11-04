@@ -4,7 +4,7 @@ Kotlin y Jetpack Compose (ADR 0006). Paquete `dev.rubensalas.atalaya`, Android 1
 
 ## Compilar
 
-Se compila en `ai-lab`, con el JDK 21 y el SDK de Android de `/data/bots` (`/data/bots/android-env.sh`):
+Se compila dentro de Docker, sin instalar Java ni el SDK de Android. Solo hace falta Docker:
 
 ```bash
 android/compilar.sh                  # APK de depuración
@@ -12,11 +12,27 @@ android/compilar.sh test             # pruebas unitarias
 android/compilar.sh assembleDebug testDebugUnitTest
 ```
 
-El APK queda en `android/app/build/outputs/apk/debug/app-debug.apk`. La versión que se publica la compila GitHub Actions, firmada (ADR 0012).
+El APK queda en `android/app/build/outputs/apk/debug/app-debug.apk`.
 
-## Probar en el emulador
+- **La primera vez** el script crea la imagen `atalaya-android-build:local` con `build.Dockerfile`: JDK 21 y SDK 37, las mismas versiones que GitHub Actions. La vuelve a crear cuando cambia la receta.
+- **La caché de Gradle** vive en el volumen `atalaya-android-gradle`. Para liberar espacio se pueden borrar la imagen y el volumen: el script los recrea.
+- **El contenedor** usa como mucho 6 GB de memoria y 4 CPU.
 
-`/data/bots/emulador.sh` arranca sin ventana un Android 16 (`atalaya-a35`). Después, `adb install -r` del APK y `adb exec-out screencap -p > captura.png` para ver la pantalla. Se apaga con `adb emu kill`. Usa unos 2 GB de memoria: no lo arranques mientras compila Gradle.
+### Firmar en local
+
+La versión que se publica la compila y firma GitHub Actions (ADR 0012). Para compilar una firmada en local, pasa la clave por el entorno. La clave nunca entra en el repo: en ai-lab está en `~/.config/atalaya-android/`.
+
+```bash
+export ATALAYA_KEYSTORE=~/.config/atalaya-android/atalaya.jks
+export ATALAYA_KEYSTORE_PASSWORD="$(cat ~/.config/atalaya-android/clave)"
+android/compilar.sh assembleRelease
+```
+
+El APK queda en `android/app/build/outputs/apk/release/app-release.apk`. Sin esas variables, `assembleRelease` sale sin firmar.
+
+## Probar
+
+No hay emulador en ai-lab. La app se prueba en el móvil.
 
 ## Instalar en el móvil
 
