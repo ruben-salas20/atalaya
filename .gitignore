@@ -5,4 +5,6 @@ bench/paper-completo/node_modules/
 
 # Textos completos de las noticias de prueba: son de otros medios (ver bench/traduccion/corpus.py).
 bench/traduccion/textos-completos.json
+# Resultados completos de las mediciones, con las traducciones de esos textos.
+bench/privado/
 __pycache__/
